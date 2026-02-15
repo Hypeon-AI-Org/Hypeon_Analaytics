@@ -1,0 +1,36 @@
+# Postgres on host port 5433 to avoid conflict with local Postgres on 5432.
+# Set DATABASE_URL=postgresql://postgres:postgres@localhost:5433/hypeon when running API/migrations on host.
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hypeon
+    ports:
+      - "5433:5432"   # use 5433 on host to avoid conflict with local Postgres on 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hypeon
+      DATA_RAW_DIR: /data/raw
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../data/raw:/data/raw
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data: {}

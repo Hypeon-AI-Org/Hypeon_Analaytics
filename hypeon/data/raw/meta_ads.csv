@@ -1,0 +1,271 @@
+date,campaign_id,campaign_name,spend,impressions,clicks
+2025-01-01,meta_br,Brand Awareness,93.93,1094,21
+2025-01-01,meta_conv,Conversion - Purchase,265.27,3115,38
+2025-01-01,meta_ret,Retargeting - Cart,151.18,1733,32
+2025-01-02,meta_br,Brand Awareness,97.77,1218,31
+2025-01-02,meta_conv,Conversion - Purchase,263.9,3225,52
+2025-01-02,meta_ret,Retargeting - Cart,122.21,1526,40
+2025-01-03,meta_br,Brand Awareness,96.79,1140,25
+2025-01-03,meta_conv,Conversion - Purchase,188.05,2139,48
+2025-01-03,meta_ret,Retargeting - Cart,163.19,1879,41
+2025-01-04,meta_br,Brand Awareness,70.74,959,13
+2025-01-04,meta_conv,Conversion - Purchase,185.04,1659,11
+2025-01-04,meta_ret,Retargeting - Cart,92.99,945,23
+2025-01-05,meta_br,Brand Awareness,75.07,717,17
+2025-01-05,meta_conv,Conversion - Purchase,145.02,1715,31
+2025-01-05,meta_ret,Retargeting - Cart,104.17,1420,32
+2025-01-06,meta_br,Brand Awareness,101.54,1350,30
+2025-01-06,meta_conv,Conversion - Purchase,218.52,2308,40
+2025-01-06,meta_ret,Retargeting - Cart,155.56,1788,56
+2025-01-07,meta_br,Brand Awareness,84.71,830,19
+2025-01-07,meta_conv,Conversion - Purchase,292.93,3811,92
+2025-01-07,meta_ret,Retargeting - Cart,175.86,2077,26
+2025-01-08,meta_br,Brand Awareness,88.96,1237,15
+2025-01-08,meta_conv,Conversion - Purchase,242.9,3037,55
+2025-01-08,meta_ret,Retargeting - Cart,160.75,2115,66
+2025-01-09,meta_br,Brand Awareness,105.77,1140,19
+2025-01-09,meta_conv,Conversion - Purchase,211.74,2944,50
+2025-01-09,meta_ret,Retargeting - Cart,143.62,1938,31
+2025-01-10,meta_br,Brand Awareness,92.6,770,11
+2025-01-10,meta_conv,Conversion - Purchase,221.54,2842,73
+2025-01-10,meta_ret,Retargeting - Cart,144.89,1814,37
+2025-01-11,meta_br,Brand Awareness,79.86,1101,23
+2025-01-11,meta_conv,Conversion - Purchase,145.66,2011,44
+2025-01-11,meta_ret,Retargeting - Cart,121.98,1456,43
+2025-01-12,meta_br,Brand Awareness,65.05,987,20
+2025-01-12,meta_conv,Conversion - Purchase,158.56,1544,29
+2025-01-12,meta_ret,Retargeting - Cart,125.14,1706,39
+2025-01-13,meta_br,Brand Awareness,62.53,839,19
+2025-01-13,meta_conv,Conversion - Purchase,222.85,2394,47
+2025-01-13,meta_ret,Retargeting - Cart,183.43,1814,32
+2025-01-14,meta_br,Brand Awareness,117.11,1300,23
+2025-01-14,meta_conv,Conversion - Purchase,246.69,2347,49
+2025-01-14,meta_ret,Retargeting - Cart,119.4,1644,32
+2025-01-15,meta_br,Brand Awareness,130.69,1641,44
+2025-01-15,meta_conv,Conversion - Purchase,195.79,2301,49
+2025-01-15,meta_ret,Retargeting - Cart,184.25,1591,39
+2025-01-16,meta_br,Brand Awareness,106.08,1598,37
+2025-01-16,meta_conv,Conversion - Purchase,245.5,2689,36
+2025-01-16,meta_ret,Retargeting - Cart,150.44,1747,52
+2025-01-17,meta_br,Brand Awareness,88.6,1119,13
+2025-01-17,meta_conv,Conversion - Purchase,229.38,2872,69
+2025-01-17,meta_ret,Retargeting - Cart,178.08,2121,30
+2025-01-18,meta_br,Brand Awareness,73.91,963,21
+2025-01-18,meta_conv,Conversion - Purchase,154.73,2207,45
+2025-01-18,meta_ret,Retargeting - Cart,114.62,1667,38
+2025-01-19,meta_br,Brand Awareness,72.2,1177,24
+2025-01-19,meta_conv,Conversion - Purchase,165.38,2021,55
+2025-01-19,meta_ret,Retargeting - Cart,105.68,1377,35
+2025-01-20,meta_br,Brand Awareness,90.3,771,16
+2025-01-20,meta_conv,Conversion - Purchase,252.99,2728,66
+2025-01-20,meta_ret,Retargeting - Cart,160.11,1602,36
+2025-01-21,meta_br,Brand Awareness,95.04,858,19
+2025-01-21,meta_conv,Conversion - Purchase,243.14,2555,57
+2025-01-21,meta_ret,Retargeting - Cart,157.63,1709,37
+2025-01-22,meta_br,Brand Awareness,112.94,1194,26
+2025-01-22,meta_conv,Conversion - Purchase,245.14,4052,43
+2025-01-22,meta_ret,Retargeting - Cart,162.36,1848,36
+2025-01-23,meta_br,Brand Awareness,126.1,1511,47
+2025-01-23,meta_conv,Conversion - Purchase,229.01,2908,51
+2025-01-23,meta_ret,Retargeting - Cart,131.92,1599,29
+2025-01-24,meta_br,Brand Awareness,101.19,788,23
+2025-01-24,meta_conv,Conversion - Purchase,239.37,3706,55
+2025-01-24,meta_ret,Retargeting - Cart,153.78,2818,44
+2025-01-25,meta_br,Brand Awareness,54.01,589,13
+2025-01-25,meta_conv,Conversion - Purchase,192.18,2802,52
+2025-01-25,meta_ret,Retargeting - Cart,79.35,883,23
+2025-01-26,meta_br,Brand Awareness,74.57,602,11
+2025-01-26,meta_conv,Conversion - Purchase,210.79,3425,78
+2025-01-26,meta_ret,Retargeting - Cart,109.4,1041,16
+2025-01-27,meta_br,Brand Awareness,99.19,1290,29
+2025-01-27,meta_conv,Conversion - Purchase,228.58,2216,35
+2025-01-27,meta_ret,Retargeting - Cart,122.1,1622,13
+2025-01-28,meta_br,Brand Awareness,93.66,1208,33
+2025-01-28,meta_conv,Conversion - Purchase,249.12,3488,62
+2025-01-28,meta_ret,Retargeting - Cart,131.37,1399,38
+2025-01-29,meta_br,Brand Awareness,113.41,1471,53
+2025-01-29,meta_conv,Conversion - Purchase,245.52,3250,69
+2025-01-29,meta_ret,Retargeting - Cart,143.11,2380,65
+2025-01-30,meta_br,Brand Awareness,78.05,874,19
+2025-01-30,meta_conv,Conversion - Purchase,275.97,2567,22
+2025-01-30,meta_ret,Retargeting - Cart,105.8,1254,24
+2025-01-31,meta_br,Brand Awareness,104.0,1087,15
+2025-01-31,meta_conv,Conversion - Purchase,172.19,2179,47
+2025-01-31,meta_ret,Retargeting - Cart,170.41,2314,44
+2025-02-01,meta_br,Brand Awareness,84.3,988,16
+2025-02-01,meta_conv,Conversion - Purchase,161.58,1749,16
+2025-02-01,meta_ret,Retargeting - Cart,107.63,1345,24
+2025-02-02,meta_br,Brand Awareness,62.66,798,22
+2025-02-02,meta_conv,Conversion - Purchase,176.45,1938,33
+2025-02-02,meta_ret,Retargeting - Cart,104.16,986,19
+2025-02-03,meta_br,Brand Awareness,100.08,1570,38
+2025-02-03,meta_conv,Conversion - Purchase,286.37,3028,70
+2025-02-03,meta_ret,Retargeting - Cart,123.33,1556,34
+2025-02-04,meta_br,Brand Awareness,87.85,1405,32
+2025-02-04,meta_conv,Conversion - Purchase,177.33,2324,41
+2025-02-04,meta_ret,Retargeting - Cart,148.93,1925,42
+2025-02-05,meta_br,Brand Awareness,68.97,667,15
+2025-02-05,meta_conv,Conversion - Purchase,296.88,4692,136
+2025-02-05,meta_ret,Retargeting - Cart,103.09,1395,14
+2025-02-06,meta_br,Brand Awareness,123.53,1544,22
+2025-02-06,meta_conv,Conversion - Purchase,323.6,4299,45
+2025-02-06,meta_ret,Retargeting - Cart,155.75,1641,33
+2025-02-07,meta_br,Brand Awareness,92.61,1365,17
+2025-02-07,meta_conv,Conversion - Purchase,260.73,4074,64
+2025-02-07,meta_ret,Retargeting - Cart,154.05,1910,31
+2025-02-08,meta_br,Brand Awareness,77.44,944,14
+2025-02-08,meta_conv,Conversion - Purchase,223.1,3030,58
+2025-02-08,meta_ret,Retargeting - Cart,95.76,998,26
+2025-02-09,meta_br,Brand Awareness,69.1,892,17
+2025-02-09,meta_conv,Conversion - Purchase,192.96,2270,54
+2025-02-09,meta_ret,Retargeting - Cart,103.07,1407,32
+2025-02-10,meta_br,Brand Awareness,98.09,1008,15
+2025-02-10,meta_conv,Conversion - Purchase,221.87,2225,54
+2025-02-10,meta_ret,Retargeting - Cart,148.71,2251,70
+2025-02-11,meta_br,Brand Awareness,100.3,893,16
+2025-02-11,meta_conv,Conversion - Purchase,247.02,2228,41
+2025-02-11,meta_ret,Retargeting - Cart,156.36,1732,27
+2025-02-12,meta_br,Brand Awareness,88.65,1380,26
+2025-02-12,meta_conv,Conversion - Purchase,218.95,2464,61
+2025-02-12,meta_ret,Retargeting - Cart,134.64,1745,41
+2025-02-13,meta_br,Brand Awareness,111.38,1648,28
+2025-02-13,meta_conv,Conversion - Purchase,292.85,3049,54
+2025-02-13,meta_ret,Retargeting - Cart,177.14,2417,48
+2025-02-14,meta_br,Brand Awareness,82.31,1080,18
+2025-02-14,meta_conv,Conversion - Purchase,215.84,2310,49
+2025-02-14,meta_ret,Retargeting - Cart,102.51,1304,27
+2025-02-15,meta_br,Brand Awareness,64.83,912,21
+2025-02-15,meta_conv,Conversion - Purchase,161.49,1721,40
+2025-02-15,meta_ret,Retargeting - Cart,82.35,933,15
+2025-02-16,meta_br,Brand Awareness,71.87,892,18
+2025-02-16,meta_conv,Conversion - Purchase,208.09,2591,47
+2025-02-16,meta_ret,Retargeting - Cart,87.31,1173,26
+2025-02-17,meta_br,Brand Awareness,122.39,1285,25
+2025-02-17,meta_conv,Conversion - Purchase,249.07,2945,59
+2025-02-17,meta_ret,Retargeting - Cart,111.99,1528,35
+2025-02-18,meta_br,Brand Awareness,117.67,1941,35
+2025-02-18,meta_conv,Conversion - Purchase,250.16,3006,89
+2025-02-18,meta_ret,Retargeting - Cart,111.72,1449,18
+2025-02-19,meta_br,Brand Awareness,61.71,491,6
+2025-02-19,meta_conv,Conversion - Purchase,292.13,2998,56
+2025-02-19,meta_ret,Retargeting - Cart,124.69,1648,23
+2025-02-20,meta_br,Brand Awareness,120.72,1208,19
+2025-02-20,meta_conv,Conversion - Purchase,256.64,3092,83
+2025-02-20,meta_ret,Retargeting - Cart,153.93,1475,25
+2025-02-21,meta_br,Brand Awareness,92.23,1240,27
+2025-02-21,meta_conv,Conversion - Purchase,247.72,3403,59
+2025-02-21,meta_ret,Retargeting - Cart,148.25,1832,50
+2025-02-22,meta_br,Brand Awareness,70.48,796,11
+2025-02-22,meta_conv,Conversion - Purchase,197.24,2135,46
+2025-02-22,meta_ret,Retargeting - Cart,76.7,1080,14
+2025-02-23,meta_br,Brand Awareness,63.25,892,11
+2025-02-23,meta_conv,Conversion - Purchase,176.88,2148,32
+2025-02-23,meta_ret,Retargeting - Cart,129.04,1935,19
+2025-02-24,meta_br,Brand Awareness,79.19,1078,14
+2025-02-24,meta_conv,Conversion - Purchase,238.21,2920,68
+2025-02-24,meta_ret,Retargeting - Cart,146.69,1788,28
+2025-02-25,meta_br,Brand Awareness,120.91,1331,28
+2025-02-25,meta_conv,Conversion - Purchase,233.77,2854,54
+2025-02-25,meta_ret,Retargeting - Cart,148.22,1478,35
+2025-02-26,meta_br,Brand Awareness,122.88,1534,36
+2025-02-26,meta_conv,Conversion - Purchase,285.3,3953,85
+2025-02-26,meta_ret,Retargeting - Cart,156.91,2154,43
+2025-02-27,meta_br,Brand Awareness,86.65,1043,11
+2025-02-27,meta_conv,Conversion - Purchase,253.46,3251,85
+2025-02-27,meta_ret,Retargeting - Cart,155.66,2156,43
+2025-02-28,meta_br,Brand Awareness,85.98,789,11
+2025-02-28,meta_conv,Conversion - Purchase,201.89,2678,50
+2025-02-28,meta_ret,Retargeting - Cart,165.39,2008,50
+2025-03-01,meta_br,Brand Awareness,83.46,893,16
+2025-03-01,meta_conv,Conversion - Purchase,165.64,1450,33
+2025-03-01,meta_ret,Retargeting - Cart,127.28,1525,26
+2025-03-02,meta_br,Brand Awareness,83.87,613,12
+2025-03-02,meta_conv,Conversion - Purchase,184.07,1998,53
+2025-03-02,meta_ret,Retargeting - Cart,123.86,1421,27
+2025-03-03,meta_br,Brand Awareness,95.93,1052,14
+2025-03-03,meta_conv,Conversion - Purchase,307.35,4320,103
+2025-03-03,meta_ret,Retargeting - Cart,127.7,2063,61
+2025-03-04,meta_br,Brand Awareness,104.83,1068,16
+2025-03-04,meta_conv,Conversion - Purchase,270.88,2755,54
+2025-03-04,meta_ret,Retargeting - Cart,177.9,1598,47
+2025-03-05,meta_br,Brand Awareness,126.03,1200,15
+2025-03-05,meta_conv,Conversion - Purchase,244.27,2427,45
+2025-03-05,meta_ret,Retargeting - Cart,93.81,1082,31
+2025-03-06,meta_br,Brand Awareness,85.04,974,12
+2025-03-06,meta_conv,Conversion - Purchase,279.81,3231,95
+2025-03-06,meta_ret,Retargeting - Cart,157.97,1778,40
+2025-03-07,meta_br,Brand Awareness,94.48,880,18
+2025-03-07,meta_conv,Conversion - Purchase,248.9,3069,67
+2025-03-07,meta_ret,Retargeting - Cart,141.62,1818,52
+2025-03-08,meta_br,Brand Awareness,60.44,935,17
+2025-03-08,meta_conv,Conversion - Purchase,160.38,2703,56
+2025-03-08,meta_ret,Retargeting - Cart,131.08,1787,20
+2025-03-09,meta_br,Brand Awareness,73.87,808,10
+2025-03-09,meta_conv,Conversion - Purchase,133.18,1625,37
+2025-03-09,meta_ret,Retargeting - Cart,115.21,1312,21
+2025-03-10,meta_br,Brand Awareness,87.35,951,14
+2025-03-10,meta_conv,Conversion - Purchase,248.5,2970,46
+2025-03-10,meta_ret,Retargeting - Cart,148.44,1555,31
+2025-03-11,meta_br,Brand Awareness,110.43,1364,30
+2025-03-11,meta_conv,Conversion - Purchase,192.98,2169,46
+2025-03-11,meta_ret,Retargeting - Cart,168.74,1485,30
+2025-03-12,meta_br,Brand Awareness,121.31,1412,27
+2025-03-12,meta_conv,Conversion - Purchase,274.15,3425,80
+2025-03-12,meta_ret,Retargeting - Cart,155.75,1916,30
+2025-03-13,meta_br,Brand Awareness,100.19,1453,27
+2025-03-13,meta_conv,Conversion - Purchase,250.54,2760,66
+2025-03-13,meta_ret,Retargeting - Cart,134.45,1858,28
+2025-03-14,meta_br,Brand Awareness,86.58,1074,22
+2025-03-14,meta_conv,Conversion - Purchase,268.76,3796,68
+2025-03-14,meta_ret,Retargeting - Cart,164.63,1675,44
+2025-03-15,meta_br,Brand Awareness,79.89,1044,21
+2025-03-15,meta_conv,Conversion - Purchase,160.91,1825,41
+2025-03-15,meta_ret,Retargeting - Cart,109.13,1336,17
+2025-03-16,meta_br,Brand Awareness,75.02,796,11
+2025-03-16,meta_conv,Conversion - Purchase,178.34,1477,34
+2025-03-16,meta_ret,Retargeting - Cart,123.55,1469,22
+2025-03-17,meta_br,Brand Awareness,88.57,1036,8
+2025-03-17,meta_conv,Conversion - Purchase,264.98,3531,65
+2025-03-17,meta_ret,Retargeting - Cart,143.32,1771,38
+2025-03-18,meta_br,Brand Awareness,120.25,1447,23
+2025-03-18,meta_conv,Conversion - Purchase,240.37,2971,82
+2025-03-18,meta_ret,Retargeting - Cart,147.5,1459,22
+2025-03-19,meta_br,Brand Awareness,70.88,897,11
+2025-03-19,meta_conv,Conversion - Purchase,210.65,1695,24
+2025-03-19,meta_ret,Retargeting - Cart,168.31,1578,17
+2025-03-20,meta_br,Brand Awareness,106.26,1202,26
+2025-03-20,meta_conv,Conversion - Purchase,287.46,3444,46
+2025-03-20,meta_ret,Retargeting - Cart,152.35,1980,33
+2025-03-21,meta_br,Brand Awareness,81.25,1154,20
+2025-03-21,meta_conv,Conversion - Purchase,243.06,2924,73
+2025-03-21,meta_ret,Retargeting - Cart,161.52,1830,42
+2025-03-22,meta_br,Brand Awareness,97.09,1434,33
+2025-03-22,meta_conv,Conversion - Purchase,152.69,2978,41
+2025-03-22,meta_ret,Retargeting - Cart,104.02,1102,31
+2025-03-23,meta_br,Brand Awareness,78.14,714,15
+2025-03-23,meta_conv,Conversion - Purchase,198.85,2259,31
+2025-03-23,meta_ret,Retargeting - Cart,98.27,1093,21
+2025-03-24,meta_br,Brand Awareness,95.77,1290,19
+2025-03-24,meta_conv,Conversion - Purchase,192.24,2022,54
+2025-03-24,meta_ret,Retargeting - Cart,142.41,2375,53
+2025-03-25,meta_br,Brand Awareness,85.81,886,18
+2025-03-25,meta_conv,Conversion - Purchase,214.01,3584,53
+2025-03-25,meta_ret,Retargeting - Cart,171.88,2564,49
+2025-03-26,meta_br,Brand Awareness,88.52,1013,22
+2025-03-26,meta_conv,Conversion - Purchase,294.34,3565,46
+2025-03-26,meta_ret,Retargeting - Cart,157.09,1673,15
+2025-03-27,meta_br,Brand Awareness,93.26,851,19
+2025-03-27,meta_conv,Conversion - Purchase,336.34,5286,90
+2025-03-27,meta_ret,Retargeting - Cart,145.29,1943,49
+2025-03-28,meta_br,Brand Awareness,97.71,1144,35
+2025-03-28,meta_conv,Conversion - Purchase,256.44,2828,58
+2025-03-28,meta_ret,Retargeting - Cart,169.98,1692,31
+2025-03-29,meta_br,Brand Awareness,60.98,697,20
+2025-03-29,meta_conv,Conversion - Purchase,205.35,2426,37
+2025-03-29,meta_ret,Retargeting - Cart,105.69,1490,25
+2025-03-30,meta_br,Brand Awareness,90.08,833,15
+2025-03-30,meta_conv,Conversion - Purchase,233.31,1862,48
+2025-03-30,meta_ret,Retargeting - Cart,80.16,947,18
+2025-03-31,meta_br,Brand Awareness,117.47,668,6
+2025-03-31,meta_conv,Conversion - Purchase,239.17,2887,44
+2025-03-31,meta_ret,Retargeting - Cart,151.62,1459,26
