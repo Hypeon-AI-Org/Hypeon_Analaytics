@@ -1,10 +1,13 @@
 """
 Copilot: answer natural-language questions using dashboard data.
 Designed for founders and non-technical users; uses metrics, decisions, MMM, and reports.
+Slot-based prompts: only versioned, precomputed context is injected (run_id, versions, stability, confidence).
 """
 from datetime import date, timedelta
+import json
 import os
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 from sqlmodel import Session, select
@@ -17,16 +20,87 @@ from packages.shared.src.models import (
 from packages.shared.src.dates import parse_date_range
 from packages.metrics.src.attribution_mmm_report import build_attribution_mmm_report
 
+_COPILOT_PROMPTS_DIR = Path(__file__).resolve().parent / "copilot_prompts"
+_MAX_COPILOT_TOKENS = 512
+
+
+def _load_copilot_templates() -> tuple[str, str]:
+    """Load system and context_slot templates. Return (system_txt, context_slot_txt)."""
+    system_path = _COPILOT_PROMPTS_DIR / "system.txt"
+    slot_path = _COPILOT_PROMPTS_DIR / "context_slot.txt"
+    system_txt = system_path.read_text(encoding="utf-8") if system_path.exists() else ""
+    slot_txt = slot_path.read_text(encoding="utf-8") if slot_path.exists() else ""
+    return system_txt, slot_txt
+
+
+def _build_prompt_from_templates(
+    question: str,
+    ctx: dict[str, Any],
+    versioned_context: Optional[dict[str, Any]] = None,
+    conversation_history: Optional[list[dict[str, str]]] = None,
+) -> str:
+    """Build LLM prompt from templates; inject versioned context, dashboard data, and optional conversation history."""
+    system_txt, slot_txt = _load_copilot_templates()
+    if not slot_txt or versioned_context is None:
+        # Fallback: legacy single-block prompt
+        hist = ""
+        if conversation_history:
+            hist = "\n\nConversation so far:\n" + "\n".join(
+                f"{'User' if m.get('role') == 'user' else 'Assistant'}: {m.get('content', '')}"
+                for m in conversation_history
+            ) + "\n\n"
+        return (
+            "You are an experienced marketing specialist advising a founder. Use ONLY the data below. "
+            "Be concise, data-driven, and actionable. Use specific numbers from the data. "
+            "Recommend clear next steps when relevant. Answer in 2–5 sentences unless more detail is needed.\n\n"
+            f"Data (dashboard metrics, decisions, MMM, attribution):\n{ctx}\n\n"
+            f"{hist}Current question: {question}\n\nAnswer:"
+        )
+    run_id = versioned_context.get("run_id") or "—"
+    mta_version = versioned_context.get("mta_version") or "—"
+    mmm_version = versioned_context.get("mmm_version") or "—"
+    stability_index = versioned_context.get("stability_index")
+    stability_str = f"{stability_index:.2f}" if stability_index is not None else "—"
+    mta_conf = versioned_context.get("mta_confidence")
+    mta_conf_str = f"{mta_conf:.2f}" if mta_conf is not None else "—"
+    mmm_conf = versioned_context.get("mmm_confidence")
+    mmm_conf_str = f"{mmm_conf:.2f}" if mmm_conf is not None else "—"
+    align = versioned_context.get("alignment_score")
+    align_str = f"{align:.2f}" if align is not None else "—"
+    data_json = json.dumps(ctx, indent=2)
+    conversation_block = ""
+    if conversation_history:
+        conversation_block = "\n\nConversation so far:\n" + "\n".join(
+            f"{'User' if m.get('role') == 'user' else 'Assistant'}: {m.get('content', '')}"
+            for m in conversation_history
+        ) + "\n\n"
+    current_question = f"Current question: {question}"
+    filled = (
+        slot_txt.replace("{{ run_id }}", str(run_id))
+        .replace("{{ mta_version }}", str(mta_version))
+        .replace("{{ mmm_version }}", str(mmm_version))
+        .replace("{{ stability_index }}", stability_str)
+        .replace("{{ mta_confidence }}", mta_conf_str)
+        .replace("{{ mmm_confidence }}", mmm_conf_str)
+        .replace("{{ alignment_score }}", align_str)
+        .replace("{{ data_json }}", data_json)
+        .replace("{{ question }}", conversation_block + current_question)
+    )
+    return system_txt.strip() + "\n\n" + filled
+
 
 def get_copilot_context(
     session: Session,
     lookback_days: int = 90,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    _extended: bool = False,
 ) -> dict[str, Any]:
     """
     Build a summary of current data for Copilot answers (same data as dashboard).
     If start_date/end_date are provided, use that range; else use lookback_days from today.
+    When no explicit range is given and the default window has no data, retries with 365-day
+    lookback so sample/historical data (e.g. from 2025-01-01) is included.
     """
     if start_date is not None and end_date is not None:
         start, end = start_date, end_date
@@ -90,6 +164,25 @@ def get_copilot_context(
         if r.run_id == mmm_run_id:
             mmm_by_channel[r.channel] = r.coefficient
     r2 = mmm_rows[0].goodness_of_fit_r2 if mmm_rows else None
+    # When using lookback (no explicit range), if this window has no data try a longer window
+    # so sample/historical data (e.g. from 2025-01-01) is included instead of showing $0
+    EXTENDED_LOOKBACK_DAYS = 400
+    if (
+        start_date is None
+        and end_date is None
+        and not _extended
+        and total_spend == 0
+        and not channel_list
+        and lookback_days < EXTENDED_LOOKBACK_DAYS
+    ):
+        return get_copilot_context(
+            session,
+            lookback_days=EXTENDED_LOOKBACK_DAYS,
+            start_date=None,
+            end_date=None,
+            _extended=True,
+        )
+
     # Attribution vs MMM report
     report = build_attribution_mmm_report(session, start, end)
     return {
@@ -342,47 +435,59 @@ def _answer_from_templates(question: str, ctx: dict[str, Any]) -> tuple[str, lis
     ), ["General guidance"]
 
 
-def _build_llm_prompt(question: str, ctx: dict[str, Any]) -> str:
-    """Prompt so the model answers like an experienced marketing specialist to a founder."""
-    return (
-        "You are an experienced marketing specialist advising a founder. Use ONLY the data below. "
-        "Be concise, data-driven, and actionable. Use specific numbers from the data. "
-        "Recommend clear next steps when relevant (e.g. 'Check Dashboard → Decisions' or 'Run the pipeline'). "
-        "Write in a confident, professional tone. Answer in 2–5 sentences unless more detail is needed.\n\n"
-        "Data (dashboard metrics, decisions, MMM, attribution):\n"
-        f"{ctx}\n\n"
-        f"Question: {question}\n\n"
-        "Answer:"
-    )
-
-
-def generate_copilot_answer(session: Session, question: str) -> tuple[str, list[str]]:
+def generate_copilot_answer(
+    session: Session,
+    question: str,
+    versioned_context: Optional[dict[str, Any]] = None,
+    conversation_history: Optional[list[dict[str, str]]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> tuple[str, list[str], dict[str, Any]]:
     """
     Generate a plain-language answer from dashboard data.
     Prefers Gemini if GEMINI_API_KEY is set, else OpenAI if OPENAI_API_KEY is set, else templates.
-    Returns (answer_text, sources).
+    conversation_history: optional list of {"role": "user"|"assistant", "content": str} for follow-ups.
+    start_date/end_date: optional range so answer uses same window as "Data in scope".
+    Returns (answer_text, sources, model_versions_used).
     """
-    ctx = get_copilot_context(session)
+    if start_date is not None and end_date is not None:
+        ctx = get_copilot_context(session, start_date=start_date, end_date=end_date)
+    else:
+        ctx = get_copilot_context(session)
     q = question.strip()
     use_llm = len(q) > 10
+    model_versions_used = {}
+    if versioned_context:
+        model_versions_used = {
+            "mta_version": versioned_context.get("mta_version"),
+            "mmm_version": versioned_context.get("mmm_version"),
+        }
 
     if use_llm and os.environ.get("GEMINI_API_KEY"):
         try:
-            return _answer_with_gemini(question, ctx)
+            answer, sources = _answer_with_gemini(question, ctx, versioned_context, conversation_history)
+            return answer, sources, model_versions_used
         except Exception:
             pass
 
     if use_llm and os.environ.get("OPENAI_API_KEY"):
         try:
-            return _answer_with_openai(question, ctx)
+            answer, sources = _answer_with_openai(question, ctx, versioned_context, conversation_history)
+            return answer, sources, model_versions_used
         except Exception:
             pass
 
-    return _answer_from_templates(question, ctx)
+    answer, sources = _answer_from_templates(question, ctx)
+    return answer, sources, model_versions_used
 
 
-def _answer_with_gemini(question: str, ctx: dict[str, Any]) -> tuple[str, list[str]]:
-    """Use Google Gemini API to generate answer from dashboard context."""
+def _answer_with_gemini(
+    question: str,
+    ctx: dict[str, Any],
+    versioned_context: Optional[dict[str, Any]] = None,
+    conversation_history: Optional[list[dict[str, str]]] = None,
+) -> tuple[str, list[str]]:
+    """Use Google Gemini API to generate answer from dashboard context and optional conversation history."""
     try:
         import google.generativeai as genai
     except ImportError:
@@ -395,66 +500,90 @@ def _answer_with_gemini(question: str, ctx: dict[str, Any]) -> tuple[str, list[s
     genai.configure(api_key=api_key)
     model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
     model = genai.GenerativeModel(model_name)
-    prompt = _build_llm_prompt(question, ctx)
+    prompt = _build_prompt_from_templates(question, ctx, versioned_context, conversation_history)
 
-    response = model.generate_content(prompt)
+    response = model.generate_content(
+        prompt,
+        generation_config={"max_output_tokens": _MAX_COPILOT_TOKENS},
+    )
     text = (response.text or "").strip()
     if not text:
         return _answer_from_templates(question, ctx)
     return text, ["Unified metrics", "Decisions", "MMM", "Attribution report"]
 
 
-def stream_answer_with_gemini(question: str, ctx: dict[str, Any]):
+def stream_answer_with_gemini(
+    question: str,
+    ctx: dict[str, Any],
+    versioned_context: Optional[dict[str, Any]] = None,
+    conversation_history: Optional[list[dict[str, str]]] = None,
+):
     """
-    Yield (delta_text, sources). For each content chunk yield (chunk, None);
-    at the end yield (None, sources). If Gemini is unavailable, yields one (full, sources).
+    Yield (delta_text, sources, model_versions_used). For each content chunk yield (chunk, None, None);
+    at the end yield (None, sources, model_versions_used). Uses dashboard context and optional conversation history for follow-ups.
     """
+    model_versions_used = {}
+    if versioned_context:
+        model_versions_used = {
+            "mta_version": versioned_context.get("mta_version"),
+            "mmm_version": versioned_context.get("mmm_version"),
+        }
+    sources = ["Unified metrics", "Decisions", "MMM", "Attribution report"]
+
     try:
         import google.generativeai as genai
     except ImportError:
-        full, sources = _answer_from_templates(question, ctx)
-        yield full, None
-        yield None, sources
+        full, _ = _answer_from_templates(question, ctx)
+        yield full, None, None
+        yield None, sources, model_versions_used
         return
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        full, sources = _answer_from_templates(question, ctx)
-        yield full, None
-        yield None, sources
+        full, _ = _answer_from_templates(question, ctx)
+        yield full, None, None
+        yield None, sources, model_versions_used
         return
 
     genai.configure(api_key=api_key)
     model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
     model = genai.GenerativeModel(model_name)
-    prompt = _build_llm_prompt(question, ctx)
-    sources = ["Unified metrics", "Decisions", "MMM", "Attribution report"]
+    prompt = _build_prompt_from_templates(question, ctx, versioned_context, conversation_history)
 
     try:
-        response = model.generate_content(prompt, stream=True)
+        response = model.generate_content(
+            prompt,
+            stream=True,
+            generation_config={"max_output_tokens": _MAX_COPILOT_TOKENS},
+        )
         for chunk in response:
             if chunk.text:
-                yield chunk.text, None
-        yield None, sources
+                yield chunk.text, None, None
+        yield None, sources, model_versions_used
     except Exception:
-        full, sources = _answer_from_templates(question, ctx)
-        yield full, None
-        yield None, sources
+        full, _ = _answer_from_templates(question, ctx)
+        yield full, None, None
+        yield None, sources, model_versions_used
 
 
-def _answer_with_openai(question: str, ctx: dict[str, Any]) -> tuple[str, list[str]]:
-    """Use OpenAI to generate a friendlier answer with same context."""
+def _answer_with_openai(
+    question: str,
+    ctx: dict[str, Any],
+    versioned_context: Optional[dict[str, Any]] = None,
+    conversation_history: Optional[list[dict[str, str]]] = None,
+) -> tuple[str, list[str]]:
+    """Use OpenAI to generate a friendlier answer with same context and optional conversation history."""
     try:
         import openai
     except ImportError:
         return _answer_from_templates(question, ctx)
 
     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    prompt = _build_llm_prompt(question, ctx)
+    prompt = _build_prompt_from_templates(question, ctx, versioned_context, conversation_history)
     resp = client.chat.completions.create(
         model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=300,
+        max_tokens=_MAX_COPILOT_TOKENS,
     )
     text = (resp.choices[0].message.content or "").strip()
     if not text:

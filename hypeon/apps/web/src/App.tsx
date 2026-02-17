@@ -3,7 +3,6 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Metrics from './pages/Metrics'
 import Decisions from './pages/Decisions'
-import MMMOptimizer from './pages/MMMOptimizer'
 import Report from './pages/Report'
 import Copilot from './pages/Copilot'
 
@@ -14,7 +13,6 @@ function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/metrics" element={<Metrics />} />
         <Route path="/decisions" element={<Decisions />} />
-        <Route path="/optimizer" element={<MMMOptimizer />} />
         <Route path="/report" element={<Report />} />
         <Route path="/copilot" element={<Copilot />} />
       </Routes>

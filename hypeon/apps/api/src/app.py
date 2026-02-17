@@ -13,9 +13,10 @@ for _env_dir in [_app_dir.parent.parent.parent.parent, _app_dir.parent.parent.pa
 
 import json
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter
 from sqlmodel import Session, select
 
 from packages.shared.src.db import get_engine, get_session_fastapi
@@ -49,7 +50,7 @@ from packages.shared.src.schemas import (
 )
 from packages.shared.src.dates import parse_date_range
 from packages.shared.src.ingest import run_ingest
-from packages.attribution.src.runner import run_attribution
+from packages.attribution.src.runner import run_attribution, run_attribution_with_diagnostics
 from packages.mmm.src.runner import run_mmm
 from packages.metrics.src.aggregator import run_metrics
 from packages.rules_engine.src.rules import run_rules
@@ -59,7 +60,16 @@ from packages.mmm.src.optimizer import (
 )
 from packages.mmm.src.simulator import projected_revenue_delta
 from packages.metrics.src.attribution_mmm_report import build_attribution_mmm_report
+from packages.governance.src.metadata import record_run, get_latest_run
+from packages.product_engine.src.reconciliation import compute_reconciliation
+from packages.rules_engine.src.engine import enrich_decisions
+from .envelope import envelope_success, envelope_error
+from .middleware import get_correlation_id
 from .copilot import generate_copilot_answer, get_copilot_context, stream_answer_with_gemini
+
+# Last run diagnostics cache for /api/v1 (set only when pipeline runs via v1)
+_last_mta_diagnostics: dict = {}
+_last_mmm_diagnostics: dict = {}
 
 app = FastAPI(title="HypeOn Product Engine API", version="1.0.0")
 
@@ -75,6 +85,10 @@ def ensure_copilot_tables():
             pass
 
 
+from .middleware import CorrelationIdMiddleware, LoggingMiddleware
+
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"],
@@ -339,7 +353,170 @@ def _run_pipeline(
     run_mmm(session, run_id=run_id, start_date=start, end_date=end)
     run_metrics(session, start_date=start, end_date=end, attribution_run_id=run_id)
     run_rules(session, start_date=start, end_date=end, mmm_run_id=run_id)
+    record_run(run_id=run_id)
     return run_id
+
+
+def _run_pipeline_v1(
+    session: Session,
+    seed: int | None,
+    data_dir: Path | None,
+) -> str:
+    """Run pipeline with diagnostics; store MTA and MMM diagnostics for v1 endpoints."""
+    import random
+    global _last_mta_diagnostics, _last_mmm_diagnostics
+    if seed is not None:
+        random.seed(seed)
+    run_id = f"run-{seed if seed is not None else 'default'}"
+    run_ingest(session, data_dir=data_dir)
+    start = date.today() - timedelta(days=365)
+    end = date.today()
+    _, mta_result = run_attribution_with_diagnostics(
+        session, run_id=run_id, start_date=start, end_date=end
+    )
+    _last_mta_diagnostics.clear()
+    _last_mta_diagnostics.update(mta_result)
+    mmm_result = run_mmm(session, run_id=run_id, start_date=start, end_date=end)
+    _last_mmm_diagnostics.clear()
+    _last_mmm_diagnostics.update(mmm_result)
+    run_metrics(session, start_date=start, end_date=end, attribution_run_id=run_id)
+    run_rules(session, start_date=start, end_date=end, mmm_run_id=run_id)
+    record_run(run_id=run_id)
+    return run_id
+
+
+# ----- API v1 (envelope) -----
+router_v1 = APIRouter(prefix="/api/v1", tags=["v1"])
+
+
+@router_v1.get("/engine/health")
+def v1_engine_health(request: Request):
+    """Liveness/readiness. Returns envelope."""
+    meta = {"correlation_id": get_correlation_id(request)}
+    return JSONResponse(content=envelope_success({"status": "ok"}, meta=meta))
+
+
+@router_v1.post("/engine/run")
+def v1_engine_run(
+    request: Request,
+    session: Session = Depends(get_session_fastapi),
+    seed: int | None = Query(None),
+):
+    """Run full pipeline with diagnostics; return envelope with run_id, timestamp, versions."""
+    try:
+        data_dir = _default_data_dir()
+        run_id = _run_pipeline_v1(session, seed, data_dir)
+        latest = get_latest_run()
+        meta = {"correlation_id": get_correlation_id(request)}
+        data = {
+            "run_id": run_id,
+            "timestamp": latest.timestamp.isoformat() if latest else None,
+            "mta_version": latest.mta_version if latest else None,
+            "mmm_version": latest.mmm_version if latest else None,
+            "data_snapshot_id": latest.data_snapshot_id if latest else None,
+        }
+        return JSONResponse(content=envelope_success(data, meta=meta))
+    except Exception as e:
+        meta = {"correlation_id": get_correlation_id(request)}
+        return JSONResponse(
+            status_code=500,
+            content=envelope_error([str(e)], meta=meta),
+        )
+
+
+@router_v1.get("/mta/diagnostics")
+def v1_mta_diagnostics(request: Request):
+    """MTA diagnostics from last v1 engine run. Returns envelope."""
+    meta = {"correlation_id": get_correlation_id(request)}
+    return JSONResponse(content=envelope_success(_last_mta_diagnostics, meta=meta))
+
+
+@router_v1.get("/mmm/diagnostics")
+def v1_mmm_diagnostics(request: Request):
+    """MMM diagnostics from last v1 engine run. Returns envelope."""
+    meta = {"correlation_id": get_correlation_id(request)}
+    return JSONResponse(content=envelope_success(_last_mmm_diagnostics, meta=meta))
+
+
+@router_v1.get("/reconciliation")
+def v1_reconciliation(
+    request: Request,
+    session: Session = Depends(get_session_fastapi),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+):
+    """MTA vs MMM alignment. Returns envelope."""
+    try:
+        start, end = parse_date_range(start_date, end_date)
+        report = build_attribution_mmm_report(session, start, end)
+        rec = compute_reconciliation(
+            report["attribution_share"],
+            report["mmm_share"],
+            alignment_confidence=1.0,
+        )
+        meta = {"correlation_id": get_correlation_id(request)}
+        return JSONResponse(content=envelope_success(rec, meta=meta))
+    except Exception as e:
+        meta = {"correlation_id": get_correlation_id(request)}
+        return JSONResponse(status_code=500, content=envelope_error([str(e)], meta=meta))
+
+
+@router_v1.get("/decisions")
+def v1_decisions(
+    request: Request,
+    session: Session = Depends(get_session_fastapi),
+    status: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+):
+    """Decisions with reasoning, risk_flags, model_versions, run_id. Returns envelope."""
+    try:
+        stmt = select(DecisionStore)
+        if status is not None:
+            stmt = stmt.where(DecisionStore.status == status)
+        stmt = stmt.order_by(DecisionStore.created_at.desc())
+        rows = list(session.exec(stmt).all())
+        latest = get_latest_run()
+        start_r, end_r = parse_date_range(start_date, end_date, default_days=365)
+        report = build_attribution_mmm_report(session, start_r, end_r)
+        rec = compute_reconciliation(report["attribution_share"], report["mmm_share"])
+        mta_conf = _last_mta_diagnostics.get("confidence_score", 0.5) if _last_mta_diagnostics else 0.5
+        mmm_conf = _last_mmm_diagnostics.get("confidence_score", 0.5) if _last_mmm_diagnostics else 0.5
+        enriched = enrich_decisions(
+            rows,
+            run_id=latest.run_id if latest else None,
+            mta_version=latest.mta_version if latest else None,
+            mmm_version=latest.mmm_version if latest else None,
+            mta_confidence=mta_conf,
+            mmm_confidence=mmm_conf,
+            alignment_score=rec["overall_alignment_score"],
+            alignment_result=rec,
+        )
+        meta = {"correlation_id": get_correlation_id(request)}
+        return JSONResponse(content=envelope_success({"decisions": enriched, "total": len(enriched)}, meta=meta))
+    except Exception as e:
+        meta = {"correlation_id": get_correlation_id(request)}
+        return JSONResponse(status_code=500, content=envelope_error([str(e)], meta=meta))
+
+
+@router_v1.get("/model-info")
+def v1_model_info(request: Request):
+    """Aggregate model versions and last run metadata. Returns envelope."""
+    latest = get_latest_run()
+    meta = {"correlation_id": get_correlation_id(request)}
+    data = {}
+    if latest:
+        data = {
+            "run_id": latest.run_id,
+            "timestamp": latest.timestamp.isoformat(),
+            "mta_version": latest.mta_version,
+            "mmm_version": latest.mmm_version,
+            "data_snapshot_id": latest.data_snapshot_id,
+        }
+    return JSONResponse(content=envelope_success(data, meta=meta))
+
+
+app.include_router(router_v1)
 
 
 # ----- Copilot (for founders / non-technical) -----
@@ -423,6 +600,47 @@ def _copilot_ensure_session(session: Session, session_id: int | None):
     return s.id
 
 
+def _get_versioned_copilot_context(session: Session) -> dict:
+    """Build versioned context for Copilot: run_id, versions, stability, confidence, alignment (precomputed only)."""
+    latest = get_latest_run()
+    out = {
+        "run_id": latest.run_id if latest else None,
+        "mta_version": latest.mta_version if latest else None,
+        "mmm_version": latest.mmm_version if latest else None,
+        "stability_index": _last_mmm_diagnostics.get("stability_index"),
+        "mta_confidence": _last_mta_diagnostics.get("confidence_score"),
+        "mmm_confidence": _last_mmm_diagnostics.get("confidence_score"),
+        "alignment_score": None,
+    }
+    try:
+        start, end = parse_date_range(None, None, default_days=365)
+        report = build_attribution_mmm_report(session, start, end)
+        mta_share = report.get("attribution_share") or {}
+        mmm_share = report.get("mmm_share") or {}
+        recon = compute_reconciliation(mta_share, mmm_share)
+        out["alignment_score"] = recon.get("overall_alignment_score")
+    except Exception:
+        pass
+    return out
+
+
+def _copilot_session_history(session: Session, session_id: int) -> list[dict[str, str]]:
+    """Load previous messages in a copilot session for conversation context (user + assistant pairs)."""
+    stmt = select(CopilotMessage).where(CopilotMessage.session_id == session_id).order_by(CopilotMessage.created_at)
+    rows = list(session.exec(stmt).all())
+    return [{"role": m.role, "content": m.content or ""} for m in rows]
+
+
+def _parse_copilot_dates(start_date: str | None, end_date: str | None) -> tuple[date | None, date | None]:
+    """Parse optional YYYY-MM-DD strings to dates for Copilot context."""
+    if not start_date or not end_date:
+        return None, None
+    try:
+        return date.fromisoformat(start_date), date.fromisoformat(end_date)
+    except (ValueError, TypeError):
+        return None, None
+
+
 @app.post("/copilot/ask", response_model=CopilotAskResponse)
 def copilot_ask(
     session: Session = Depends(get_session_fastapi),
@@ -431,7 +649,12 @@ def copilot_ask(
     """Answer a natural-language question using dashboard data. Optionally save to a session."""
     question = (body.question or "").strip() or "How are we doing?"
     sid = body.session_id if body.session_id is not None else _copilot_ensure_session(session, None)
-    answer, sources = generate_copilot_answer(session, question)
+    versioned = _get_versioned_copilot_context(session)
+    history = _copilot_session_history(session, sid)
+    start_d, end_d = _parse_copilot_dates(body.start_date, body.end_date)
+    answer, sources, model_versions_used = generate_copilot_answer(
+        session, question, versioned, conversation_history=history, start_date=start_d, end_date=end_d
+    )
     # Persist to session
     user_msg = CopilotMessage(session_id=sid, role="user", content=question)
     session.add(user_msg)
@@ -448,7 +671,11 @@ def copilot_ask(
         session.add(s)
         session.commit()
     return CopilotAskResponse(
-        answer=answer, sources=sources, session_id=sid, message_id=assistant_msg.id
+        answer=answer,
+        sources=sources,
+        model_versions_used=model_versions_used,
+        session_id=sid,
+        message_id=assistant_msg.id,
     )
 
 
@@ -457,26 +684,41 @@ def copilot_ask_stream(
     session: Session = Depends(get_session_fastapi),
     body: CopilotAskRequest = CopilotAskRequest(question=""),
 ):
-    """Stream answer as SSE. Optionally save to session when done."""
+    """Stream answer as SSE. Uses session message history for follow-up questions. Dashboard data fetched when needed."""
     question = (body.question or "").strip() or "How are we doing?"
     sid = body.session_id if body.session_id is not None else _copilot_ensure_session(session, None)
-    ctx = get_copilot_context(session, lookback_days=90)
+    start_d, end_d = _parse_copilot_dates(body.start_date, body.end_date)
+    if start_d is not None and end_d is not None:
+        ctx = get_copilot_context(session, start_date=start_d, end_date=end_d)
+    else:
+        ctx = get_copilot_context(session, lookback_days=90)
+    versioned = _get_versioned_copilot_context(session)
+    history = _copilot_session_history(session, sid)
 
     def event_stream():
         full = []
         sources_list = []
+        model_versions_used = None
         # Save user message
         user_msg = CopilotMessage(session_id=sid, role="user", content=question)
         session.add(user_msg)
         session.commit()
         session.refresh(user_msg)
-        for delta, sources in stream_answer_with_gemini(question, ctx):
+        for delta, sources, mv in stream_answer_with_gemini(
+            question, ctx, versioned, conversation_history=history
+        ):
             if delta:
                 full.append(delta)
                 yield f"data: {json.dumps({'delta': delta})}\n\n"
             if sources is not None:
                 sources_list = sources
-                yield f"data: {json.dumps({'done': True, 'sources': sources, 'answer': ''.join(full)})}\n\n"
+            if mv is not None:
+                model_versions_used = mv
+            if sources is not None:
+                payload = {"done": True, "sources": sources, "answer": "".join(full)}
+                if model_versions_used is not None:
+                    payload["model_versions_used"] = model_versions_used
+                yield f"data: {json.dumps(payload)}\n\n"
         # Persist assistant message
         answer_text = "".join(full)
         assistant_msg = CopilotMessage(session_id=sid, role="assistant", content=answer_text)

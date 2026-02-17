@@ -170,6 +170,8 @@ class CopilotAskRequest(BaseModel):
 
     question: str
     session_id: Optional[int] = None
+    start_date: Optional[str] = None  # YYYY-MM-DD; when set with end_date, use this range for context (matches "Data in scope")
+    end_date: Optional[str] = None
 
 
 class CopilotAskResponse(BaseModel):
@@ -177,6 +179,7 @@ class CopilotAskResponse(BaseModel):
 
     answer: str
     sources: List[str] = []
+    model_versions_used: Optional[dict] = None  # { mta_version, mmm_version }
     session_id: Optional[int] = None
     message_id: Optional[int] = None
 

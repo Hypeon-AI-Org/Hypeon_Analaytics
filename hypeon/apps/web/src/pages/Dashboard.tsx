@@ -10,7 +10,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts'
-import { api } from '../api'
+import { api, apiV1 } from '../api'
 
 const defaultEnd = new Date()
 // Start from 2025-01-01 so sample data (Jan 2025) and all pipeline runs are included
@@ -29,6 +29,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [runStatus, setRunStatus] = useState<string | null>(null)
+  const [modelInfo, setModelInfo] = useState<Awaited<ReturnType<typeof apiV1.modelInfo>> | null>(null)
 
   const fetchData = () => {
     setError(null)
@@ -36,11 +37,13 @@ export default function Dashboard() {
       api.metrics({ start_date: startDate, end_date: endDate }),
       api.decisions(),
       api.mmmStatus(),
+      apiV1.modelInfo().catch(() => null),
     ])
-      .then(([m, d, mm]) => {
+      .then(([m, d, mm, info]) => {
         setMetrics(m)
         setDecisions(d)
         setMmm(mm)
+        setModelInfo(info ?? null)
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
@@ -53,15 +56,12 @@ export default function Dashboard() {
 
   const handleRunPipeline = () => {
     setRunStatus('Running pipeline…')
-    api.runPipeline()
+    apiV1.engineRun()
       .then((r) => {
-        setRunStatus('Pipeline started. Refreshing in 20s…')
-        setTimeout(() => {
-          setRunStatus('Refreshing…')
-          fetchData()
-          setRunStatus(`Done: ${r.run_id}`)
-          setTimeout(() => setRunStatus(null), 4000)
-        }, 20000)
+        setRunStatus('Pipeline completed. Refreshing…')
+        fetchData()
+        setRunStatus(`Done: ${r.run_id}`)
+        setTimeout(() => setRunStatus(null), 4000)
       })
       .catch((e) => {
         setRunStatus(`Failed: ${e.message}`)
@@ -108,9 +108,18 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {modelInfo && (modelInfo.run_id || modelInfo.timestamp) && (
+        <div className="mb-4 p-3 bg-surface-100 border border-surface-200 rounded-lg flex flex-wrap items-center gap-4 text-sm">
+          <span className="font-medium text-surface-700">Engine</span>
+          {modelInfo.run_id && <span className="text-surface-600">Run: {modelInfo.run_id}</span>}
+          {modelInfo.timestamp && <span className="text-surface-500">Updated: {new Date(modelInfo.timestamp).toLocaleString()}</span>}
+          {modelInfo.mta_version && <span className="text-surface-500">MTA {modelInfo.mta_version}</span>}
+          {modelInfo.mmm_version && <span className="text-surface-500">MMM {modelInfo.mmm_version}</span>}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-surface-900 mb-1">Overview</h1>
+          <h1 className="font-display text-2xl font-semibold text-surface-900 mb-1">Data & Model Health</h1>
           <p className="text-surface-500 text-sm">{rangeLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

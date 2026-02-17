@@ -1,6 +1,6 @@
-"""MMM runner: build features (adstock + saturation), fit regression, persist mmm_results."""
+"""MMM runner: build features (adstock + saturation), fit pipeline, persist mmm_results."""
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,8 @@ from sqlmodel import Session, select
 
 from packages.shared.src.models import MMMResults, RawMetaAds, RawGoogleAds, RawShopifyOrders
 from packages.mmm.src.transforms import adstock_transform, saturation_log
-from packages.mmm.src.regression import fit_mmm
+from packages.mmm.src.model import fit_pipeline
+from packages.governance.src.versions import MMM_VERSION
 
 
 def _daily_spend_matrix(
@@ -16,7 +17,7 @@ def _daily_spend_matrix(
     start: date,
     end: date,
     channels: List[str],
-) -> Tuple[pd.DatetimeIndex, np.ndarray, np.ndarray]:
+) -> tuple[pd.DatetimeIndex, np.ndarray, np.ndarray]:
     """Return (dates, spend_matrix, revenue vector)."""
     dates = pd.date_range(start=start, end=end, freq="D")
     date_to_idx = {d.date(): i for i, d in enumerate(dates)}
@@ -59,10 +60,13 @@ def run_mmm(
     channels: Optional[List[str]] = None,
     adstock_half_life: float = 7.0,
     ridge_alpha: float = 0.0,
+    n_boot: int = 500,
+    mmm_version: Optional[str] = None,
 ) -> Dict:
     """
-    Build daily spend matrix and revenue, apply adstock + log saturation, fit regression, write mmm_results.
-    Returns dict with run_id, r2, coefficients per channel.
+    Build daily spend matrix and revenue, apply adstock + log saturation, fit via model.fit_pipeline,
+    write mmm_results. Returns dict with run_id, r2, coefficients, and full diagnostics (vif,
+    elasticities, bootstrap_ci, stability_index, confidence_score) for API use.
     """
     if channels is None:
         channels = ["meta", "google"]
@@ -81,22 +85,51 @@ def run_mmm(
                     channel=ch,
                     coefficient=0.0,
                     goodness_of_fit_r2=None,
-                    model_version="v1",
+                    model_version=mmm_version or MMM_VERSION,
                 )
             )
         session.commit()
-        return {"run_id": run_id, "r2": None, "coefficients": {ch: 0.0 for ch in channels}}
-    coef, r2, _ = fit_mmm(X, rev, ridge_alpha=ridge_alpha)
-    for j, ch in enumerate(channels):
-        c = float(coef[j]) if j < len(coef) else 0.0
+        return {
+            "run_id": run_id,
+            "r2": None,
+            "coefficients": {ch: 0.0 for ch in channels},
+            "vif": {},
+            "elasticities": {},
+            "bootstrap_ci": {},
+            "stability_index": 0.0,
+            "confidence_score": 0.0,
+        }
+    pipeline_out = fit_pipeline(
+        X, rev,
+        channel_names=channels,
+        n_boot=n_boot,
+        estimator="ridge",
+        model_version=mmm_version or MMM_VERSION,
+    )
+    coefs = pipeline_out["coefficients"]
+    r2 = pipeline_out["r2"]
+    for ch in channels:
+        c = coefs.get(ch, 0.0)
         session.add(
             MMMResults(
                 run_id=run_id,
                 channel=ch,
                 coefficient=c,
                 goodness_of_fit_r2=r2,
-                model_version="v1",
+                model_version=pipeline_out["model_version"],
             )
         )
     session.commit()
-    return {"run_id": run_id, "r2": r2, "coefficients": {ch: float(coef[j]) for j, ch in enumerate(channels)}}
+    return {
+        "run_id": run_id,
+        "r2": r2,
+        "coefficients": coefs,
+        "model_version": pipeline_out["model_version"],
+        "adj_r2": pipeline_out["adj_r2"],
+        "mape": pipeline_out["mape"],
+        "vif": pipeline_out["vif"],
+        "elasticities": pipeline_out["elasticities"],
+        "bootstrap_ci": pipeline_out["bootstrap_ci"],
+        "stability_index": pipeline_out["stability_index"],
+        "confidence_score": pipeline_out["confidence_score"],
+    }

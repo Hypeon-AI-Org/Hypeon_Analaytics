@@ -60,7 +60,7 @@ def removal_effect(
         if np.allclose(next_p, probs):
             break
         probs = next_p
-    return 1.0 - probs[end_index] if end_index < len(probs) else 0.0
+    return float(1.0 - probs[end_index]) if end_index < len(probs) else 0.0
 
 
 def markov_credits(
@@ -80,5 +80,7 @@ def markov_credits(
     for i in range(n):
         e = removal_effect(P, i, end_idx)
         effects.append(e)
-    total = sum(effects) or 1.0
-    return {ch: effects[i] / total for i, ch in enumerate(channels)}
+    total = float(sum(effects))
+    if total <= 0:
+        return {ch: 1.0 / len(channels) for ch in channels}
+    return {ch: float(effects[i] / total) for i, ch in enumerate(channels)}

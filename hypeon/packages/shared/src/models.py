@@ -109,6 +109,14 @@ class AttributionEvent(SQLModel, table=True):
     event_date: date
     run_id: str
 
+    def __init__(self, **data: Any) -> None:
+        # Coerce numpy scalars to Python float so psycopg2 doesn't emit "np" as schema
+        if "weight" in data and data["weight"] is not None:
+            data["weight"] = float(data["weight"])
+        if "allocated_revenue" in data and data["allocated_revenue"] is not None:
+            data["allocated_revenue"] = float(data["allocated_revenue"])
+        super().__init__(**data)
+
 
 # ----- Unified metrics -----
 

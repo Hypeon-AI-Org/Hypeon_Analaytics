@@ -2,11 +2,10 @@ import { ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 
 const navItems = [
-  { to: '/', label: 'Overview', description: 'Dashboard home' },
+  { to: '/', label: 'Data & Model Health', description: 'Dashboard & health' },
   { to: '/metrics', label: 'Metrics', description: 'Spend & revenue by channel' },
   { to: '/decisions', label: 'Decisions', description: 'Recommendations' },
-  { to: '/optimizer', label: 'Optimizer', description: 'Budget & simulate' },
-  { to: '/report', label: 'Attribution vs MMM', description: 'Comparison report' },
+  { to: '/report', label: 'Attribution vs MMM', description: 'Alignment report' },
   { to: '/copilot', label: 'Copilot', description: 'Ask in plain language', highlight: true },
 ]
 
@@ -45,7 +44,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           Dashboard for specialists · Copilot for founders
         </div>
       </aside>
-      <main className={`flex-1 ${isCopilot ? 'bg-surface-50' : 'bg-surface-50'} overflow-auto`}>
+      <main className={`flex-1 flex flex-col min-h-0 ${isCopilot ? 'bg-surface-50 overflow-hidden' : 'bg-surface-50 overflow-auto'}`}>
         {children}
       </main>
     </div>

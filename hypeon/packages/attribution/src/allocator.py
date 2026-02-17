@@ -27,19 +27,24 @@ def fractional_allocate(
         if hasattr(order_date, "date"):
             order_date = order_date.date()
         revenue = float(row["revenue"])
-        day_spend = daily_spend_by_channel[daily_spend_by_channel["date"] == order_date]
+        # Normalize dates so pandas Timestamp columns match Python date
+        col_dates = daily_spend_by_channel["date"].apply(
+            lambda x: x.date() if hasattr(x, "date") and callable(getattr(x, "date")) else x
+        )
+        day_spend = daily_spend_by_channel[col_dates == order_date]
         if channel_weights:
             for ch, w in channel_weights.items():
-                out.append((order_id, order_date, ch, w, revenue * w))
+                w = float(w)
+                out.append((order_id, order_date, ch, w, float(revenue * w)))
             continue
         if day_spend.empty:
             continue
-        total_spend = day_spend["spend"].sum()
+        total_spend = float(day_spend["spend"].sum())
         if total_spend <= 0:
             continue
         for _, r in day_spend.iterrows():
             ch = r["channel"]
             spend = float(r["spend"])
             w = spend / total_spend
-            out.append((order_id, order_date, ch, w, revenue * w))
+            out.append((order_id, order_date, ch, float(w), float(revenue * w)))
     return out

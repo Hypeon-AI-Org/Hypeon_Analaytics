@@ -55,22 +55,30 @@ def marginal_roas_at_spend(
     return out
 
 
+STABILITY_THRESHOLD_DEFAULT = 0.3
+
+
 def allocate_budget_greedy(
     total_budget: float,
     coefficients: Dict[str, float],
     current_spend: Optional[Dict[str, float]] = None,
     half_life: float = DEFAULT_ADSTOCK_HALF_LIFE,
     step: float = 10.0,
+    channel_min_pct: Optional[Dict[str, float]] = None,
+    channel_max_pct: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
     """
     Greedy allocation: repeatedly add `step` to the channel with highest marginal ROAS
     until total spend reaches total_budget. Respects saturation (marginal ROAS decreases).
     If current_spend is provided, start from it; else start from 0 per channel.
+    Enforces non-negative spend. Optional channel_min_pct/channel_max_pct (0..1) cap share of total_budget.
     """
     channels = list(coefficients.keys())
     if not channels:
         return {}
     spend = dict(current_spend) if current_spend else {ch: 0.0 for ch in channels}
+    for ch in spend:
+        spend[ch] = max(0.0, spend[ch])
     total_current = sum(spend.values())
     if total_current >= total_budget and total_current > 0:
         scale = total_budget / total_current
@@ -82,9 +90,43 @@ def allocate_budget_greedy(
         best_ch = max(channels, key=lambda c: mroas.get(c, 0.0))
         if mroas.get(best_ch, 0.0) <= 0:
             break
-        spend[best_ch] = spend.get(best_ch, 0.0) + add
+        spend[best_ch] = max(0.0, spend.get(best_ch, 0.0) + add)
         remaining -= add
+    if channel_min_pct or channel_max_pct:
+        total = sum(spend.values()) or 1.0
+        for ch in channels:
+            pct = spend[ch] / total
+            if channel_min_pct and ch in channel_min_pct:
+                spend[ch] = max(spend[ch], total_budget * channel_min_pct[ch])
+            if channel_max_pct and ch in channel_max_pct:
+                spend[ch] = min(spend[ch], total_budget * channel_max_pct[ch])
+        scale = total_budget / (sum(spend.values()) or 1.0)
+        spend = {ch: spend[ch] * scale for ch in spend}
     return spend
+
+
+def allocate_budget_greedy_with_guard(
+    total_budget: float,
+    coefficients: Dict[str, float],
+    current_spend: Dict[str, float],
+    stability_index: Optional[float] = None,
+    stability_threshold: float = STABILITY_THRESHOLD_DEFAULT,
+    half_life: float = DEFAULT_ADSTOCK_HALF_LIFE,
+) -> Dict:
+    """
+    Run optimizer only if stability_index is None or >= stability_threshold. Otherwise return
+    {"stable": False, "message": "Model not stable", "recommended_allocation": current_spend}.
+    """
+    if stability_index is not None and stability_index < stability_threshold:
+        return {
+            "stable": False,
+            "message": "Model not stable",
+            "recommended_allocation": dict(current_spend),
+        }
+    recommended = allocate_budget_greedy(
+        total_budget, coefficients, current_spend=current_spend, half_life=half_life,
+    )
+    return {"stable": True, "recommended_allocation": recommended}
 
 
 def recommend_reallocation(

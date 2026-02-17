@@ -23,7 +23,6 @@ def test_fractional_by_spend_share():
         order_id, _, channel, weight, alloc = r
         assert weight >= 0 and weight <= 1
         assert alloc >= 0
-    total_o1 = sum(alloc for oid, *_ in [r for r in out if r[0] == "o1"] for r in [out] for alloc in [r[4]])
     total_o1 = sum(r[4] for r in out if r[0] == "o1")
     assert abs(total_o1 - 100.0) < 1e-6
     total_o2 = sum(r[4] for r in out if r[0] == "o2")

@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { api } from '../api'
 
-const defaultEnd = new Date()
-const defaultStart = new Date(defaultEnd)
-defaultStart.setDate(defaultStart.getDate() - 30)
+// Default to sample data range (generate_sample_data.py uses 2025-01-01 to 2025-03-31)
+const defaultStart = '2025-01-01'
+const defaultEnd = '2025-01-31'
 
 export default function Report() {
   const [report, setReport] = useState<Awaited<ReturnType<typeof api.reportAttributionMmm>> | null>(null)
-  const [start, setStart] = useState(defaultStart.toISOString().slice(0, 10))
-  const [end, setEnd] = useState(defaultEnd.toISOString().slice(0, 10))
+  const [start, setStart] = useState(defaultStart)
+  const [end, setEnd] = useState(defaultEnd)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -62,6 +62,11 @@ export default function Report() {
         <p className="text-surface-500">Loading…</p>
       ) : report ? (
         <>
+          {report.channels.length === 0 || (report.channels.every((ch) => ((report.attribution_share[ch] ?? 0) + (report.mmm_share[ch] ?? 0)) === 0)) ? (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+              <strong>No data in this date range.</strong> Sample data covers 2025-01-01 to 2025-03-31. Run the pipeline from the Dashboard (after generating sample data with <code className="bg-amber-100 px-1 rounded">python scripts/generate_sample_data.py</code> from the <code className="bg-amber-100 px-1 rounded">hypeon</code> folder), then use a range within 2025-01-01–2025-03-31.
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-4 mb-6">
             <div className="px-4 py-2 rounded-lg bg-surface-100 text-surface-800 text-sm">
               Disagreement score: <strong>{report.disagreement_score.toFixed(3)}</strong>

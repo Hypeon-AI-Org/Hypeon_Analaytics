@@ -87,3 +87,68 @@ def test_api_metrics_and_decisions_return_200_and_shape(engine_and_data_dir):
         assert "decisions" in jd and "total" in jd
     finally:
         app.dependency_overrides.pop(get_session_fastapi, None)
+
+
+def test_api_v1_engine_run_returns_envelope(engine_and_data_dir):
+    """POST /api/v1/engine/run returns envelope: success, data, meta, errors."""
+    engine, data_dir = engine_and_data_dir
+    with Session(engine) as session:
+        run_ingest(session, data_dir=data_dir)
+    def session_override():
+        with Session(engine) as s:
+            yield s
+    client = TestClient(app)
+    app.dependency_overrides[get_session_fastapi] = session_override
+    try:
+        r = client.post("/api/v1/engine/run", params={"seed": 42})
+        assert r.status_code in (200, 500), r.text
+        j = r.json()
+        assert "success" in j
+        assert "data" in j
+        assert "meta" in j
+        assert "errors" in j
+        assert isinstance(j["errors"], list)
+        if r.status_code == 200 and j.get("success"):
+            assert "run_id" in j["data"]
+    finally:
+        app.dependency_overrides.pop(get_session_fastapi, None)
+
+
+def test_api_v1_decisions_returns_envelope_and_schema(engine_and_data_dir):
+    """GET /api/v1/decisions returns envelope and at least one decision with required shape."""
+    engine, data_dir = engine_and_data_dir
+    start = date(2025, 1, 1)
+    end = date(2025, 1, 31)
+    run_id = "run-v1-dec"
+    with Session(engine) as session:
+        run_ingest(session, data_dir=data_dir)
+        run_attribution(session, run_id=run_id, start_date=start, end_date=end)
+        run_mmm(session, run_id=run_id, start_date=start, end_date=end)
+        run_metrics(session, start_date=start, end_date=end, attribution_run_id=run_id)
+        run_rules(session, start_date=start, end_date=end, mmm_run_id=run_id)
+    def session_override():
+        with Session(engine) as s:
+            yield s
+    client = TestClient(app)
+    app.dependency_overrides[get_session_fastapi] = session_override
+    try:
+        r = client.get("/api/v1/decisions")
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert "success" in j and "data" in j and "meta" in j and "errors" in j
+        data = j.get("data") or {}
+        decisions = data.get("decisions") or []
+        total = data.get("total", 0)
+        assert isinstance(decisions, list)
+        assert total >= 0
+        if decisions:
+            d = decisions[0]
+            assert "decision_id" in d
+            assert "channel" in d
+            assert "recommended_action" in d
+            assert "reasoning" in d
+            assert "risk_flags" in d
+            assert "confidence_score" in d
+            assert "model_versions" in d or "run_id" in d
+    finally:
+        app.dependency_overrides.pop(get_session_fastapi, None)
