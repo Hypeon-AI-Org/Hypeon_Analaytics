@@ -1,0 +1,60 @@
+{
+  "rules": [
+    {
+      "id": "waste_zero_revenue",
+      "name": "Waste: zero revenue",
+      "insight_type": "waste_zero_revenue",
+      "condition": {
+        "metric": "revenue",
+        "op": "eq",
+        "value": 0,
+        "min_spend": 1
+      },
+      "summary_template": "Campaign {entity_id} has spend but zero revenue in the last 28 days.",
+      "explanation_template": "Spend = {spend}, revenue = 0. Consider pausing or reallocating budget.",
+      "recommendation_template": "Pause or reduce budget for {entity_id}; reallocate to higher-ROAS campaigns."
+    },
+    {
+      "id": "roas_decline",
+      "name": "ROAS decline vs baseline",
+      "insight_type": "roas_decline",
+      "condition": {
+        "metric": "roas_pct_delta_28d",
+        "op": "lt",
+        "value": -0.2,
+        "min_spend": 10
+      },
+      "summary_template": "Campaign {entity_id} ROAS is down >20% vs 28-day baseline.",
+      "explanation_template": "ROAS dropped {roas_pct_delta_28d_pct}. Current ROAS = {roas}, 28d avg = {roas_28d_avg}.",
+      "recommendation_template": "Review creative and targeting for {entity_id}; consider scaling down until ROAS recovers."
+    },
+    {
+      "id": "funnel_leak",
+      "name": "Funnel leak: low conversion rate",
+      "insight_type": "funnel_leak",
+      "condition": {
+        "metric": "conversion_rate",
+        "op": "lt",
+        "value": 0.01,
+        "min_sessions": 100
+      },
+      "summary_template": "Entity {entity_id} has high traffic but conversion rate < 1%.",
+      "explanation_template": "Sessions = {sessions}, conversions = {conversions}, conversion_rate = {conversion_rate}.",
+      "recommendation_template": "Audit landing page and checkout for {entity_id}; improve CRO or audience targeting."
+    },
+    {
+      "id": "scale_opportunity",
+      "name": "Scale opportunity: ROAS above baseline",
+      "insight_type": "scale_opportunity",
+      "condition": {
+        "metric": "roas_pct_delta_28d",
+        "op": "gt",
+        "value": 0.2,
+        "min_spend": 5
+      },
+      "summary_template": "Campaign {entity_id} ROAS is >20% above 28-day baseline.",
+      "explanation_template": "ROAS = {roas}, 28d avg = {roas_28d_avg}. Opportunity to scale.",
+      "recommendation_template": "Increase budget for {entity_id} within acceptable CAC/ROAS guardrails."
+    }
+  ]
+}

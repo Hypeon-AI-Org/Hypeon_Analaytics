@@ -1,4 +1,0 @@
-date,campaign_id,campaign_name,spend,impressions,clicks,attribution_setting,view_through_conversions
-2025-01-01,c1,Campaign Meta 1,100,1000,50,7d_click_1d_view,12
-2025-01-02,c1,Campaign Meta 1,120,1100,55,7d_click_1d_view,15
-2025-01-01,c2,Campaign Meta 2,80,800,40,7d_click_1d_view,8

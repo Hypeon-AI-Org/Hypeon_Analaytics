@@ -1,7 +1,0 @@
-order_id,name,order_date,revenue,total_price,financial_status,currency,source_name,is_new_customer,is_test,cancelled_at
-1001,#1001,2025-01-01,150.00,150.00,paid,USD,web,True,False,
-1002,#1002,2025-01-02,80.00,80.00,paid,USD,web,False,False,
-1003,#1003,2025-01-03,200.00,200.00,refunded,USD,web,True,False,
-1004,#1004,2025-01-04,50.00,50.00,paid,USD,pos,False,False,
-1005,#1005,2025-01-05,0,,cancelled,USD,web,False,False,2025-01-05 12:00:00
-1006,#1006,2025-01-06,120.00,120.00,paid,EUR,web,True,False,

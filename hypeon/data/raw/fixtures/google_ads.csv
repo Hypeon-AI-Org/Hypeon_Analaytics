@@ -1,4 +1,0 @@
-date,campaign_id,campaign_name,spend,impressions,clicks,campaign_type,daily_budget
-2025-01-01,g1,Google PMax,60,2000,30,PMax,100.00
-2025-01-02,g1,Google PMax,70,2200,35,PMax,100.00
-2025-01-01,g2,Search Brand,40,1500,20,Search,50.00

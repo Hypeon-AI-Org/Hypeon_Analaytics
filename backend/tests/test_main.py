@@ -1,0 +1,56 @@
+"""Tests for FastAPI main (mocked BigQuery)."""
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+
+import pytest
+from unittest.mock import patch, MagicMock
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def client():
+    import os
+    os.environ.setdefault("API_KEY", "test-key")
+    from backend.app.main import app
+    return TestClient(app)
+
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_insights_mocked_bq(client):
+    import pandas as pd
+    mock_df = pd.DataFrame([])
+    mock_query = MagicMock()
+    mock_query.to_dataframe.return_value = mock_df
+    mock_bq = MagicMock()
+    mock_bq.query.return_value = mock_query
+    with patch("backend.app.main._bq_client", return_value=mock_bq):
+        r = client.get("/insights", headers={"X-API-Key": "test-key"})
+    assert r.status_code == 200
+    assert "items" in r.json()
+    assert r.json()["count"] == 0
+
+
+def test_copilot_query_mocked(client):
+    with patch("backend.app.main.copilot_synthesize") as mock_synth:
+        mock_synth.return_value = {"error": "insight not found", "insight_id": "nope"}
+        r = client.post("/copilot_query", json={"insight_id": "nope"}, headers={"X-API-Key": "test-key"})
+    assert r.status_code == 404
+
+
+def test_simulate_budget_shift_structure(client):
+    r = client.post(
+        "/simulate_budget_shift",
+        json={"client_id": 1, "date": "2025-02-22", "from_campaign": "c1", "to_campaign": "c2", "amount": 100},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert "low" in data and "median" in data and "high" in data
+    assert "expected_delta" in data and "confidence" in data

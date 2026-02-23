@@ -3,6 +3,8 @@
 .env.local
 .env.*.local
 *.pem
+# GCP service account keys (never commit; use GOOGLE_APPLICATION_CREDENTIALS)
+/braided-*.json
 
 # Python
 __pycache__/
@@ -63,6 +65,14 @@ logs/
 
 # Docker
 .docker/
+
+# Cursor / IDE
+.cursor/
+*.plan.md
+
+# Frontend test coverage
+coverage/
+.nyc_output/
 
 # Misc
 *.bak

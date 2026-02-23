@@ -1,8 +1,0 @@
-order_id,kind,status,amount,currency,created_at,gateway,parent_id,source_name
-1001,sale,success,150.00,USD,2025-01-01 10:00:00,shopify_payments,,web
-1002,sale,success,80.00,USD,2025-01-02 11:00:00,shopify_payments,,web
-1003,sale,success,200.00,USD,2025-01-03 09:00:00,shopify_payments,,web
-1003,refund,success,-50.00,USD,2025-01-04 14:00:00,shopify_payments,,web
-1004,capture,success,50.00,USD,2025-01-04 12:00:00,pos,,pos
-1005,authorization,success,0,USD,2025-01-05 10:00:00,shopify_payments,,web
-1006,sale,success,120.00,EUR,2025-01-06 10:00:00,shopify_payments,,web
