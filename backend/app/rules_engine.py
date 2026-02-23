@@ -24,9 +24,9 @@ def _load_rules_config(path: Optional[os.PathLike | str] = None) -> dict:
         return json.load(f)
 
 
-def _insight_id(rule_id: str, entity_type: str, entity_id: str, period: str) -> str:
-    """Deterministic id for idempotency."""
-    raw = f"{rule_id}|{entity_type}|{entity_id}|{period}"
+def _insight_id(rule_id: str, entity_type: str, entity_id: str, period: str, organization_id: str = "") -> str:
+    """Deterministic id for idempotency (insight_hash)."""
+    raw = f"{organization_id}|{rule_id}|{entity_type}|{entity_id}|{period}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -114,10 +114,13 @@ def _row_to_insight(
     client_id: int,
     period: str,
     row: dict,
+    organization_id: str,
+    workspace_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Build one analytics_insights row."""
+    """Build one analytics_insights row with insight_hash, impact fields."""
     rule_id = rule["id"]
-    insight_id = _insight_id(rule_id, entity_type, entity_id, period)
+    insight_type = rule.get("insight_type", rule_id)
+    insight_id = _insight_id(rule_id, entity_type, entity_id, period, organization_id)
     # Template vars from row
     fmt = {k: row.get(k) for k in ["spend", "revenue", "roas", "sessions", "conversions", "conversion_rate",
                                     "roas_28d_avg", "revenue_28d_avg", "roas_pct_delta_28d"]}
@@ -133,16 +136,21 @@ def _row_to_insight(
         {"metric": k, "value": float(v), "baseline": float(row.get(f"{k.replace('_pct_delta_28d', '')}_28d_avg", 0) or 0), "period": "28d"}
         for k, v in [("revenue", row.get("revenue")), ("roas", row.get("roas"))] if v is not None
     ][:5]
+    from .impact_estimator import estimate_impact, get_severity
+    impact = estimate_impact(insight_type, row)
     return {
         "insight_id": insight_id,
+        "organization_id": organization_id,
         "client_id": client_id,
+        "workspace_id": workspace_id,
         "entity_type": entity_type,
         "entity_id": entity_id,
-        "insight_type": rule.get("insight_type", rule_id),
+        "insight_type": insight_type,
         "summary": summary,
         "explanation": explanation,
         "recommendation": recommendation,
-        "expected_impact": {"metric": "revenue", "estimate": 0.0, "units": "currency"},
+        "expected_impact": {"metric": "revenue", "estimate": impact.get("potential_revenue_gain") or 0.0, "units": "currency"},
+        "expected_impact_value": impact.get("potential_revenue_gain") or 0.0,
         "confidence": 0.85,
         "evidence": evidence,
         "detected_by": [rule_id],
@@ -150,6 +158,13 @@ def _row_to_insight(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "applied_at": None,
         "history": None,
+        "insight_hash": insight_id,
+        "priority_score": None,
+        "severity": get_severity(insight_type),
+        "rank": None,
+        "potential_savings": impact.get("potential_savings"),
+        "potential_revenue_gain": impact.get("potential_revenue_gain"),
+        "risk_level": impact.get("risk_level"),
     }
 
 
@@ -157,20 +172,27 @@ def generate_insights(
     client_id: int,
     as_of_date: date,
     *,
-    load_data: Optional[Callable[[int, date], pd.DataFrame]] = None,
+    organization_id: str = "default",
+    workspace_id: Optional[str] = None,
+    load_data: Optional[Callable[..., pd.DataFrame]] = None,
     rules_path: Optional[os.PathLike | str] = None,
     write: bool = True,
+    merge: bool = True,
+    rank: bool = True,
+    since_date: Optional[date] = None,
 ) -> list[dict[str, Any]]:
     """
-    Load last 28 days of marketing_performance_daily for client, apply rules, produce insights.
-    If write=True, inserts into analytics_insights (idempotent by insight_id).
+    Load marketing_performance_daily for client (incremental if since_date), apply rules, produce insights.
+    Idempotent by insight_hash. Optional merge (dedupe) and rank before insert.
     """
     config = _load_rules_config(rules_path)
     rules = config.get("rules", [])
 
     if load_data is None:
         from .clients.bigquery import load_marketing_performance
-        load_data = load_marketing_performance
+        def _load(cid: int, d: date, days: int = 28):
+            return load_marketing_performance(cid, d, days, organization_id=organization_id, workspace_id=workspace_id, since_date=since_date)
+        load_data = _load
     df = load_data(client_id, as_of_date, 28)
     if df.empty:
         return []
@@ -189,13 +211,18 @@ def generate_insights(
             if not _evaluate_condition(row, cond):
                 continue
             entity_type = "campaign"
-            insight = _row_to_insight(rule, entity_type, entity_id, client_id, period, row)
+            insight = _row_to_insight(rule, entity_type, entity_id, client_id, period, row, organization_id, workspace_id)
             insights.append(insight)
+
+    if merge and insights:
+        from .insight_merger import merge_insights
+        insights = merge_insights(insights)
+    if rank and insights:
+        from .insight_ranker import rank_insights
+        insights = rank_insights(insights)
 
     if write and insights:
         from .clients.bigquery import insert_insights
-        # Idempotent: BigQuery has no unique constraint; we could MERGE. For V1 we insert and allow duplicates
-        # or run a MERGE from a temp table. Simplest: insert (document that DAG runs once per day per client).
         insert_insights(insights)
 
     return insights

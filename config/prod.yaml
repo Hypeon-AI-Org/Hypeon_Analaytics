@@ -1,0 +1,11 @@
+# HypeOn Analytics V1 - Production
+env: prod
+bq_project: braided-verve-459208-i6
+analytics_dataset: analytics
+ads_dataset: "146568"
+ga4_dataset: analytics_444259275
+top_insights_per_client: 5
+insight_merge_similarity_threshold: 0.9
+agent_incremental_days: 3
+log_level: WARNING
+copilot_grounding_only: true

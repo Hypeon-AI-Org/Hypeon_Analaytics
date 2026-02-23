@@ -72,8 +72,8 @@ def test_row_to_insight():
     }
     row = {"spend": 100, "revenue": 0, "roas": 0, "sessions": 0, "conversions": 0, "conversion_rate": 0,
            "roas_28d_avg": 0, "revenue_28d_avg": 0, "roas_pct_delta_28d": None}
-    out = _row_to_insight(rule, "campaign", "c1_a1", 1, "2025-02-22", row)
-    assert out["insight_id"] == _insight_id("waste_zero_revenue", "campaign", "c1_a1", "2025-02-22")
+    out = _row_to_insight(rule, "campaign", "c1_a1", 1, "2025-02-22", row, "default", None)
+    assert out["insight_id"] == _insight_id("waste_zero_revenue", "campaign", "c1_a1", "2025-02-22", "default")
     assert out["client_id"] == 1
     assert out["status"] == "new"
     assert "100" in out["explanation"]

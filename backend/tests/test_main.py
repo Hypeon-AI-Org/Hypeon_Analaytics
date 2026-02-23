@@ -24,14 +24,8 @@ def test_health(client):
 
 
 def test_insights_mocked_bq(client):
-    import pandas as pd
-    mock_df = pd.DataFrame([])
-    mock_query = MagicMock()
-    mock_query.to_dataframe.return_value = mock_df
-    mock_bq = MagicMock()
-    mock_bq.query.return_value = mock_query
-    with patch("backend.app.main._bq_client", return_value=mock_bq):
-        r = client.get("/insights", headers={"X-API-Key": "test-key"})
+    with patch("backend.app.main._list_insights_scoped", return_value=[]):
+        r = client.get("/insights", headers={"X-API-Key": "test-key", "X-Organization-Id": "test-org"})
     assert r.status_code == 200
     assert "items" in r.json()
     assert r.json()["count"] == 0

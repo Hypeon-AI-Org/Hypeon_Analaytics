@@ -88,6 +88,52 @@ No redeploy needed for rule changes; the rules engine reads the file at runtime.
 - `monitoring/` — Alerting config ([monitoring/README.md](monitoring/README.md))
 - `rules_config.json` — Rule definitions
 
+## Enterprise Readiness Upgrade
+
+The platform supports multi-tenant enterprise isolation, ranked insights, decision lifecycle tracking, and grounded Copilot.
+
+### Multi-tenant isolation
+
+- Every layer uses **organization_id**, **client_id**, **workspace_id**.
+- All API queries are scoped by `X-Organization-Id` (and optional `X-Workspace-Id`). No cross-tenant data leakage.
+- BigQuery: use [bq_sql/create_decision_store_enterprise.sql](bq_sql/create_decision_store_enterprise.sql) for new deployments; run [bq_sql/migrations/001_enterprise_multi_tenant.sql](bq_sql/migrations/001_enterprise_multi_tenant.sql) to add columns and `decision_history` on existing datasets.
+
+### Insight prioritization and deduplication
+
+- **Priority score:** `backend/app/insight_ranker.py` computes `priority_score = expected_impact × confidence × recency_weight × severity_weight`. Insights include `priority_score`, `severity`, `rank`.
+- **Top N per client:** `GET /insights/top?top_n=5` returns the top actionable insights per client (default from `config/*.yaml`: `top_insights_per_client`).
+- **Deduplication:** `backend/app/insight_merger.py` merges similar entity insights from multiple agents (e.g. trend + performance → one insight), combines evidence and preserves provenance.
+
+### Decision lifecycle
+
+- **decision_history** table tracks: `insight_id`, `recommended_action`, `status`, `applied_by`, `applied_at`, `outcome_metrics_after_7d`, `outcome_metrics_after_30d`.
+- Lifecycle: **NEW → REVIEWED → APPLIED → VERIFIED**.
+- Endpoints: `POST /insights/{id}/review`, `POST /insights/{id}/apply`; `GET /decisions/history` for audit.
+
+### Copilot grounding
+
+- Copilot uses **only** `analytics_insights`, `decision_history`, and `supporting_metrics_snapshot`. It does not query raw analytics tables.
+- Responses include explanation, business reasoning, confidence, and data provenance; hallucination is rejected via prompt and structured output.
+
+### Impact estimation
+
+- `backend/app/impact_estimator.py` estimates `potential_savings`, `potential_revenue_gain`, `risk_level` (e.g. ROAS_drop × spend_7d). Stored on the insight record.
+
+### API hardening
+
+- **Endpoints:** `GET /insights` (paginated, filtered), `GET /insights/top`, `POST /insights/{id}/review`, `POST /insights/{id}/apply`, `GET /decisions/history`, `POST /copilot/query` (and `POST /copilot_query`).
+- Pagination (`limit`, `offset`), filtering (`client_id`, `status`), organization scoping via headers. Structured errors: `{"code": "...", "message": "..."}`.
+
+### Observability and config
+
+- **Structured logging:** `backend/app/observability/logger.py` — each agent run logs `organization_id`, `agent_name`, `insights_generated`, `runtime_seconds`, `errors`.
+- **Environment config:** `config/dev.yaml`, `config/staging.yaml`, `config/prod.yaml`; switch via `ENV=dev|staging|prod`.
+
+### Agent stability
+
+- Agents are **idempotent** via deterministic **insight_hash** (same as `insight_id`). Retry-safe; no duplicate insights for the same rule/entity/period.
+- **Incremental runs:** set `INCREMENTAL_DAYS` or `agent_incremental_days` in config to process only recent data (date-windowed).
+
 ## Ops
 
 See [ops.md](ops.md) for runbooks, incident handling, and scaling.

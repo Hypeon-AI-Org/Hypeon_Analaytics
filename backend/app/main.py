@@ -1,6 +1,6 @@
 """
-FastAPI backend: insights, recommendations/apply, simulate_budget_shift, copilot_query.
-JWT auth stub and role-based checks (admin, analyst, viewer).
+FastAPI backend: enterprise multi-tenant, insights (paginated/top), review/apply, decision history, copilot.
+All queries scoped by organization_id; no cross-client leakage.
 """
 from __future__ import annotations
 
@@ -11,18 +11,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import get_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
+from .config_loader import get
 from .copilot_synthesizer import synthesize as copilot_synthesize
 
-app = FastAPI(title="HypeOn Analytics V1 API", version="1.0.0")
+app = FastAPI(title="HypeOn Analytics V1 API", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
-# ----- Auth stub -----
+# ----- Auth and tenant context -----
+def get_organization_id(request: Request) -> str:
+    return request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "default"
+
+
+def get_workspace_id(request: Request) -> Optional[str]:
+    return request.headers.get("X-Workspace-Id") or None
+
+
 def get_role_from_token(request: Request) -> str:
-    """Extract role from JWT or API key. Stub: default analyst."""
     auth = request.headers.get("Authorization")
     if auth and auth.startswith("Bearer "):
-        # In prod: decode JWT and read role claim
         return "analyst"
     if get_api_key() and request.headers.get("X-API-Key") == get_api_key():
         return "admin"
@@ -33,114 +40,193 @@ def require_role(*allowed: str):
     def dep(request: Request):
         role = get_role_from_token(request)
         if role not in allowed:
-            raise HTTPException(403, "Insufficient role")
+            raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "Insufficient role"})
         return role
     return dep
 
 
+# ----- Structured error -----
+def api_error(code: str, message: str, status: int = 400):
+    raise HTTPException(status, detail={"code": code, "message": message})
+
+
 # ----- Schemas -----
-class InsightsQuery(BaseModel):
-    client_id: Optional[int] = None
-    status: Optional[str] = None
-    limit: int = Field(50, ge=1, le=500)
+class InsightReviewBody(BaseModel):
+    status: str = Field(..., pattern="^(reviewed|rejected)$")
 
 
-class RecommendationApplyBody(BaseModel):
-    insight_id: str
-    user_id: Optional[str] = None
-    status: str = Field("applied", pattern="^(applied|rejected)$")
-
-
-class SimulateBudgetShiftBody(BaseModel):
-    client_id: int
-    date: str  # YYYY-MM-DD
-    from_campaign: str
-    to_campaign: str
-    amount: float = Field(..., gt=0)
+class InsightApplyBody(BaseModel):
+    applied_by: Optional[str] = None
+    outcome_metrics_7d: Optional[str] = None
+    outcome_metrics_30d: Optional[str] = None
 
 
 class CopilotQueryBody(BaseModel):
     insight_id: str
 
 
-# ----- BigQuery helpers -----
-def _bq_client():
+class SimulateBudgetShiftBody(BaseModel):
+    client_id: int
+    date: str
+    from_campaign: str
+    to_campaign: str
+    amount: float = Field(..., gt=0)
+
+
+# ----- Helpers -----
+def _bq():
     from .clients.bigquery import get_client
     return get_client()
 
 
-def _list_insights(client_id: Optional[int], status: Optional[str], limit: int) -> list[dict]:
-    client = _bq_client()
-    project = get_bq_project()
-    dataset = get_analytics_dataset()
-    where = []
-    if client_id is not None:
-        where.append(f"client_id = {client_id}")
-    if status:
-        where.append(f"status = '{status}'")
-    where_s = " AND ".join(where) if where else "1=1"
-    query = f"""
-    SELECT insight_id, client_id, entity_type, entity_id, insight_type, summary, explanation,
-           recommendation, expected_impact, confidence, evidence, detected_by, status, created_at, applied_at
-    FROM `{project}.{dataset}.analytics_insights`
-    WHERE {where_s}
-    ORDER BY created_at DESC
-    LIMIT {limit}
-    """
-    df = client.query(query).to_dataframe()
-    if df.empty:
-        return []
-    return [dict(row) for _, row in df.iterrows()]
+def _serialize_item(r: dict) -> dict:
+    out = {}
+    for k, v in r.items():
+        if hasattr(v, "isoformat"):
+            out[k] = v.isoformat()
+        elif isinstance(v, (list, tuple)) and v and hasattr(v[0], "_fields"):
+            out[k] = [dict(x) for x in v]
+        else:
+            out[k] = v
+    return out
 
 
-def _update_insight_status(insight_id: str, status: str, user_id: Optional[str]) -> None:
-    client = _bq_client()
+def _list_insights_scoped(
+    organization_id: str,
+    client_id: Optional[int],
+    workspace_id: Optional[str],
+    status: Optional[str],
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    from .clients.bigquery import list_insights
+    return list_insights(organization_id, client_id=client_id, workspace_id=workspace_id, status=status, limit=limit, offset=offset)
+
+
+def _top_insights_scoped(organization_id: str, client_id: Optional[int], top_n: int) -> list[dict]:
+    from .clients.bigquery import list_insights
+    from .insight_ranker import top_per_client
+    rows = list_insights(organization_id, client_id=client_id, status=None, limit=500, offset=0)
+    ranked = top_per_client(rows, top_n=top_n)
+    return ranked
+
+
+def _update_insight_status(insight_id: str, organization_id: str, status: str, user_id: Optional[str]) -> None:
+    from .clients.bigquery import get_client, get_analytics_dataset
+    client = get_client()
     project = get_bq_project()
     dataset = get_analytics_dataset()
+    user = (user_id or "unknown").replace("'", "''")
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    user = (user_id or "unknown").replace("'", "''")
-    query = f"""
+    q = f"""
     UPDATE `{project}.{dataset}.analytics_insights`
     SET status = '{status}', applied_at = CURRENT_TIMESTAMP(), history = CONCAT(COALESCE(history, ''), '; applied_by={user} at {now}')
-    WHERE insight_id = '{insight_id}'
+    WHERE insight_id = '{insight_id.replace("'", "''")}' AND organization_id = '{organization_id.replace("'", "''")}'
     """
-    client.query(query).result()
+    client.query(q).result()
 
 
 # ----- Endpoints -----
 @app.get("/insights")
 def get_insights(
+    request: Request,
     client_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Paginated insights from analytics_insights."""
-    items = _list_insights(client_id, status, limit)
-    # Serialize for JSON (datetime, etc.)
-    out = []
-    for r in items:
-        d = {}
-        for k, v in r.items():
-            if hasattr(v, "isoformat"):
-                d[k] = v.isoformat()
-            elif isinstance(v, (list, tuple)) and v and hasattr(v[0], "_fields"):
-                d[k] = [dict(x) for x in v]
-            else:
-                d[k] = v
-        out.append(d)
-    return {"items": out, "count": len(out)}
+    """Paginated insights scoped by organization."""
+    org = get_organization_id(request)
+    workspace = get_workspace_id(request)
+    items = _list_insights_scoped(org, client_id, workspace, status, limit, offset)
+    return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
 
 
-@app.post("/recommendations/apply")
-def recommendations_apply(
-    body: RecommendationApplyBody,
+@app.get("/insights/top")
+def get_insights_top(
+    request: Request,
+    client_id: Optional[int] = Query(None),
+    top_n: int = Query(None, ge=1, le=50),
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Top N actionable insights per client (default from config)."""
+    org = get_organization_id(request)
+    n = top_n or get("top_insights_per_client", 5)
+    items = _top_insights_scoped(org, client_id, n)
+    return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
+
+
+@app.post("/insights/{insight_id}/review")
+def insight_review(
+    insight_id: str,
+    body: InsightReviewBody,
+    request: Request,
     _role: str = Depends(require_role("admin", "analyst")),
 ):
-    """Mark insight as applied or rejected; write to decision history."""
-    _update_insight_status(body.insight_id, body.status, body.user_id)
-    return {"ok": True, "insight_id": body.insight_id, "status": body.status}
+    """Move insight to reviewed or rejected."""
+    org = get_organization_id(request)
+    _update_insight_status(insight_id, org, body.status, None)
+    return {"ok": True, "insight_id": insight_id, "status": body.status}
+
+
+@app.post("/insights/{insight_id}/apply")
+def insight_apply(
+    insight_id: str,
+    body: InsightApplyBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst")),
+):
+    """Mark insight as applied; write to decision_history (NEW -> APPLIED)."""
+    org = get_organization_id(request)
+    from .clients.bigquery import get_insight_by_id, insert_decision_history
+    insight = get_insight_by_id(insight_id, org)
+    if not insight:
+        api_error("NOT_FOUND", "Insight not found", 404)
+    client_id = int(insight.get("client_id") or 0)
+    insert_decision_history(
+        organization_id=org,
+        client_id=client_id,
+        insight_id=insight_id,
+        recommended_action=insight.get("recommendation") or "",
+        status="applied",
+        applied_by=body.applied_by,
+        workspace_id=get_workspace_id(request),
+    )
+    _update_insight_status(insight_id, org, "applied", body.applied_by)
+    return {"ok": True, "insight_id": insight_id, "status": "applied"}
+
+
+@app.get("/decisions/history")
+def get_decisions_history(
+    request: Request,
+    client_id: Optional[int] = Query(None),
+    insight_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Decision lifecycle history scoped by organization."""
+    org = get_organization_id(request)
+    from .clients.bigquery import get_decision_history
+    items = get_decision_history(org, client_id=client_id, insight_id=insight_id, status=status, limit=limit)
+    return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
+
+
+@app.post("/copilot/query")
+@app.post("/copilot_query")
+def copilot_query(
+    body: CopilotQueryBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Synthesized explanation from grounded sources only (insights + decision_history + snapshot)."""
+    org = get_organization_id(request)
+    out = copilot_synthesize(insight_id=body.insight_id, organization_id=org)
+    if "error" in out:
+        raise HTTPException(404, detail={"code": "NOT_FOUND", "message": out["error"]})
+    return out
 
 
 @app.post("/simulate_budget_shift")
@@ -148,30 +234,34 @@ def simulate_budget_shift(
     body: SimulateBudgetShiftBody,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Simulate moving budget between campaigns; returns low/median/high scenario."""
     from .simulation import simulate_budget_shift as run_sim
-    result = run_sim(
+    return run_sim(
         client_id=body.client_id,
         date_str=body.date,
         from_campaign=body.from_campaign,
         to_campaign=body.to_campaign,
         amount=body.amount,
     )
-    return result
-
-
-@app.post("/copilot_query")
-def copilot_query(
-    body: CopilotQueryBody,
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    """Return synthesized explanation for the given insight_id."""
-    out = copilot_synthesize(insight_id=body.insight_id)
-    if "error" in out:
-        raise HTTPException(404, out["error"])
-    return out
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# Backward-compat alias
+class RecommendationApplyBody(BaseModel):
+    insight_id: str
+    status: str = Field("applied", pattern="^(applied|rejected)$")
+    user_id: Optional[str] = None
+
+
+@app.post("/recommendations/apply")
+def recommendations_apply_legacy(
+    body: RecommendationApplyBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst")),
+):
+    org = get_organization_id(request)
+    _update_insight_status(body.insight_id, org, body.status, body.user_id)
+    return {"ok": True, "insight_id": body.insight_id, "status": body.status}

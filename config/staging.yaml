@@ -1,0 +1,11 @@
+# HypeOn Analytics V1 - Staging
+env: staging
+bq_project: braided-verve-459208-i6
+analytics_dataset: analytics_staging
+ads_dataset: "146568"
+ga4_dataset: analytics_444259275
+top_insights_per_client: 5
+insight_merge_similarity_threshold: 0.85
+agent_incremental_days: 7
+log_level: INFO
+copilot_grounding_only: true
