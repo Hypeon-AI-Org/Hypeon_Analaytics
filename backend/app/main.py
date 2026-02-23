@@ -111,6 +111,13 @@ def _top_insights_scoped(organization_id: str, client_id: Optional[int], top_n: 
     return ranked
 
 
+def _top_decisions_scoped(organization_id: str, client_id: Optional[int], top_n: int) -> list[dict]:
+    from .clients.bigquery import list_insights
+    from .top_decisions import top_decisions
+    rows = list_insights(organization_id, client_id=client_id, status=None, limit=200, offset=0)
+    return top_decisions(rows, top_n=top_n, status_filter="new")
+
+
 def _update_insight_status(insight_id: str, organization_id: str, status: str, user_id: Optional[str]) -> None:
     from .clients.bigquery import get_client, get_analytics_dataset
     client = get_client()
@@ -195,7 +202,23 @@ def insight_apply(
         workspace_id=get_workspace_id(request),
     )
     _update_insight_status(insight_id, org, "applied", body.applied_by)
+    from .audit_logger import log_decision_applied
+    log_decision_applied(org, insight_id, body.applied_by)
     return {"ok": True, "insight_id": insight_id, "status": "applied"}
+
+
+@app.get("/decisions/top")
+def get_decisions_top(
+    request: Request,
+    client_id: Optional[int] = Query(None),
+    top_n: int = Query(None, ge=1, le=20),
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Top N actions today for executives (default 3). Ranked by impact × confidence × urgency × recency."""
+    org = get_organization_id(request)
+    n = top_n or get("top_decisions_n", 3)
+    items = _top_decisions_scoped(org, client_id, n)
+    return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
 
 
 @app.get("/decisions/history")
@@ -223,6 +246,8 @@ def copilot_query(
 ):
     """Synthesized explanation from grounded sources only (insights + decision_history + snapshot)."""
     org = get_organization_id(request)
+    from .audit_logger import log_copilot_query
+    log_copilot_query(org, body.insight_id)
     out = copilot_synthesize(insight_id=body.insight_id, organization_id=org)
     if "error" in out:
         raise HTTPException(404, detail={"code": "NOT_FOUND", "message": out["error"]})
@@ -247,6 +272,24 @@ def simulate_budget_shift(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/system/health")
+def system_health(
+    request: Request,
+    agent_name: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """System health: agent_runtime, failures, insight_volume, processing_latency from system_health table."""
+    org = get_organization_id(request)
+    from .clients.bigquery import get_system_health_latest
+    rows = get_system_health_latest(org, agent_name=agent_name, limit=limit)
+    return {
+        "items": [_serialize_item(r) for r in rows],
+        "count": len(rows),
+        "organization_id": org,
+    }
 
 
 # Backward-compat alias

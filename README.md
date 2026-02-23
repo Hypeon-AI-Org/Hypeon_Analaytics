@@ -134,6 +134,43 @@ The platform supports multi-tenant enterprise isolation, ranked insights, decisi
 - Agents are **idempotent** via deterministic **insight_hash** (same as `insight_id`). Retry-safe; no duplicate insights for the same rule/entity/period.
 - **Incremental runs:** set `INCREMENTAL_DAYS` or `agent_incremental_days` in config to process only recent data (date-windowed).
 
+## Decision Intelligence Upgrade
+
+The platform adds an **Insight Reasoning Layer**, **Noise Suppression**, **Executive Summaries**, **Outcome Learning**, and **Top Decisions** for executive visibility.
+
+### Insight reasoning layer
+
+- **Signals → Context → Reasoned Insight:** `backend/app/insight_reasoner.py` aggregates signals from all agents (e.g. `roas_drop`, `conversion_drop`), infers **root_cause** and **impact_level**, and produces a single reasoned insight per entity with `recommended_action` and `confidence`. Agents can send signal payloads; the reasoner produces the final insight object.
+
+### Noise suppression
+
+- **`backend/app/insight_suppressor.py`** reduces duplicate and low-value alerts: **cooldown_period** (e.g. 5 days), **repeat_detection** (same insight_hash within window), **impact_threshold**, **min_priority_score**. Same insight does not reappear within cooldown unless severity increases. Config: `insight_cooldown_days`, `min_priority_score`, `impact_threshold` in `config/*.yaml`.
+
+### Executive intelligence agent
+
+- **`agents/executive_summary_agent.py`** runs daily and writes one **Business Health Summary** per org/client to **executive_summaries**: `top_risks`, `top_opportunities`, `overall_growth_state`, `recommended_focus_today`. Run: `python agents/executive_summary_agent.py` (set `ORGANIZATION_ID`, `RUN_DATE`, `CLIENT_IDS`). Table: [bq_sql/create_executive_and_health.sql](bq_sql/create_executive_and_health.sql).
+
+### Outcome feedback loop
+
+- **`backend/app/outcome_evaluator.py`** updates **decision_history** after insights are applied: computes **metric_change_after_7d** / **metric_change_after_30d** and **decision_success_score** (stored in outcome JSON). Use `evaluate_outcomes(organization_id)` to backfill or run periodically.
+
+### Copilot context memory
+
+- Copilot prompt now includes **recent insights**, **past applied decisions**, and **latest executive summary** so it answers like a senior analyst aware of past actions. No raw metric dumping; references past outcomes and reasoning.
+
+### Top decisions engine
+
+- **`backend/app/top_decisions.py`** ranks actions by **expected_impact × confidence × urgency × recency**. **`GET /decisions/top?top_n=3`** returns the top N actions today (default 3). Config: `top_decisions_n`.
+
+### Audit logging and system health
+
+- **`backend/app/audit_logger.py`** logs **agent_runs**, **insight_generated**, **decision_applied**, **copilot_queries**, **user_actions** to **audit_log** (and optionally stdout if `AUDIT_STDOUT=1`).
+- **system_health** table stores **agent_runtime**, **failures**, **insight_volume**, **processing_latency**. **`GET /system/health`** returns latest health rows. Agents and API write health/audit where applicable.
+
+### Performance
+
+- **Incremental BigQuery:** agents use `since_date`; `list_insights(..., min_created_date=...)` supports partition pruning. Avoid full table scans by passing date filters.
+
 ## Ops
 
 See [ops.md](ops.md) for runbooks, incident handling, and scaling.

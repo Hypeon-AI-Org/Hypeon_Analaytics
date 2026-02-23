@@ -18,6 +18,9 @@ sys.path.insert(0, str(ROOT))
 from backend.app.rules_engine import generate_insights
 from backend.app.observability.logger import log_agent_run
 from backend.app.config_loader import get
+from backend.app.clients.bigquery import insert_system_health, get_recent_insight_hashes
+from backend.app.insight_suppressor import suppress_noise
+from backend.app.audit_logger import log_agent_run_audit
 
 
 def get_organization_id() -> str:
@@ -58,6 +61,9 @@ def main() -> int:
     total = 0
     start = time.perf_counter()
     errors: list[str] = []
+    cooldown_days = get("insight_cooldown_days", 5)
+    def existing_hashes(org: str, cid: str):
+        return get_recent_insight_hashes(org, cid, since_days=cooldown_days or 7)
     for cid in client_ids:
         try:
             insights = generate_insights(
@@ -65,11 +71,16 @@ def main() -> int:
                 as_of,
                 organization_id=organization_id,
                 workspace_id=workspace_id,
-                write=True,
+                write=False,
                 merge=True,
                 rank=True,
                 since_date=since,
             )
+            if insights:
+                insights = suppress_noise(insights, existing_insight_hashes=existing_hashes)
+            if insights:
+                from backend.app.clients.bigquery import insert_insights
+                insert_insights(insights)
             total += len(insights)
             print(f"  client_id={cid}: {len(insights)} insights")
         except Exception as e:
@@ -84,6 +95,20 @@ def main() -> int:
         runtime_seconds=elapsed,
         errors=errors if errors else None,
     )
+    log_agent_run_audit(organization_id, "run_agents", total, elapsed, errors if errors else None)
+    try:
+        insert_system_health(
+            organization_id=organization_id,
+            agent_name="run_agents",
+            agent_runtime_seconds=elapsed,
+            failures=len(errors),
+            insight_volume=total,
+            processing_latency_seconds=elapsed,
+            status="ok" if not errors else "partial",
+            details="; ".join(errors) if errors else None,
+        )
+    except Exception:
+        pass
     print(f"Total insights: {total}")
     return 0
 
