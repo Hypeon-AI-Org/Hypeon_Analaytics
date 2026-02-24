@@ -1,19 +1,31 @@
 """
 Gemini LLM client for Copilot. Supports Gemini API (API key) or Vertex AI (GCP).
 Returns a callable(prompt: str) -> str for use with copilot_synthesizer.set_llm_client().
+Max output tokens guarded via COPILOT_MAX_OUTPUT_TOKENS (default 2048) to prevent cost explosion.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from typing import Callable
 
+logger = logging.getLogger(__name__)
+
 # Env: GEMINI_API_KEY or GOOGLE_API_KEY (Gemini API); or GOOGLE_GENAI_USE_VERTEXAI + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION (Vertex AI)
-# Optional: GEMINI_MODEL (default gemini-2.0-flash)
+# Optional: GEMINI_MODEL (default gemini-2.0-flash), COPILOT_MAX_OUTPUT_TOKENS (default 2048)
 
 
 def _get_model() -> str:
     return os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
+
+def _get_max_output_tokens() -> int:
+    try:
+        return min(8192, max(256, int(os.environ.get("COPILOT_MAX_OUTPUT_TOKENS", "2048"))))
+    except (TypeError, ValueError):
+        return 2048
 
 
 def _build_client():
@@ -43,16 +55,26 @@ def make_gemini_copilot_client() -> Callable[[str], str]:
     client = _build_client()
     model = _get_model()
 
+    max_tokens = _get_max_output_tokens()
+
     def _call(prompt: str) -> str:
+        t0 = time.perf_counter()
         try:
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config={"temperature": 0.2, "max_output_tokens": 2048},
+                config={"temperature": 0.2, "max_output_tokens": max_tokens},
             )
             text = (response.text or "").strip()
             if not text:
                 raise ValueError("Empty response from Gemini")
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            usage = getattr(response, "usage_metadata", None) or getattr(response, "usage", None)
+            logger.info(
+                "copilot_llm latency_ms=%.0f max_output_tokens=%s prompt_len=%d",
+                elapsed_ms, max_tokens, len(prompt),
+                extra={"usage": str(usage) if usage else None},
+            )
             return text
         except Exception as e:
             return json.dumps({
@@ -82,7 +104,10 @@ def is_gemini_configured() -> bool:
 def stream_gemini(prompt: str):
     """
     Yield text chunks from Gemini (streaming). Falls back to non-streaming then yield full text if stream not supported.
+    Uses COPILOT_MAX_OUTPUT_TOKENS for max_output_tokens guard.
     """
+    max_tokens = _get_max_output_tokens()
+    t0 = time.perf_counter()
     try:
         client = _build_client()
         model = _get_model()
@@ -90,7 +115,7 @@ def stream_gemini(prompt: str):
             response = client.models.generate_content_stream(
                 model=model,
                 contents=prompt,
-                config={"temperature": 0.2, "max_output_tokens": 2048},
+                config={"temperature": 0.2, "max_output_tokens": max_tokens},
             )
             for chunk in response:
                 if chunk and getattr(chunk, "text", None):
@@ -99,11 +124,13 @@ def stream_gemini(prompt: str):
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config={"temperature": 0.2, "max_output_tokens": 2048},
+                config={"temperature": 0.2, "max_output_tokens": max_tokens},
             )
             text = (response.text or "").strip()
             if text:
                 yield text
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        logger.info("copilot_llm_stream latency_ms=%.0f max_output_tokens=%s prompt_len=%d", elapsed_ms, max_tokens, len(prompt))
     except Exception as e:
         yield json.dumps({
             "summary": "Analysis temporarily unavailable.",

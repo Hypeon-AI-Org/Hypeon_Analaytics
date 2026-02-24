@@ -86,10 +86,64 @@ class LayoutContract(BaseModel):
         return (len(errors) == 0, errors)
 
 
+VALID_CHART_TYPES = frozenset(("line", "bar", "pie"))
+
+
+def validate_chart_type(chart_type: Any) -> tuple[bool, list[str]]:
+    """Only line, bar, pie allowed. Reject invalid to avoid frontend crash."""
+    if chart_type in VALID_CHART_TYPES:
+        return (True, [])
+    return (False, [f"chart_type must be one of line, bar, pie; got {chart_type!r}"])
+
+
+def validate_dataset(widget: dict) -> tuple[bool, list[str]]:
+    """
+    Validate widget data shape: table columns/rows, chart data array, funnel stages.
+    Reject invalid so frontend never receives bad layout.
+    """
+    errors: list[str] = []
+    t = widget.get("type")
+    if t == "table":
+        cols = widget.get("columns")
+        rows = widget.get("rows")
+        if not isinstance(cols, list):
+            errors.append("table.columns must be list")
+        if not isinstance(rows, list):
+            errors.append("table.rows must be list")
+        if isinstance(rows, list) and rows and not isinstance(rows[0], dict):
+            errors.append("table.rows must be list of objects")
+    elif t == "chart":
+        data = widget.get("data")
+        if not isinstance(data, list):
+            errors.append("chart.data must be list")
+        if isinstance(data, list) and data and not isinstance(data[0], dict):
+            errors.append("chart.data must be list of objects")
+        ct = widget.get("chartType")
+        if ct and ct not in VALID_CHART_TYPES:
+            errors.append(f"chart.chartType must be line, bar, or pie; got {ct!r}")
+    elif t == "funnel":
+        stages = widget.get("stages")
+        if not isinstance(stages, list):
+            errors.append("funnel.stages must be list")
+        if isinstance(stages, list):
+            for i, s in enumerate(stages):
+                if not isinstance(s, dict) or "name" not in s or "value" not in s:
+                    errors.append(f"funnel.stages[{i}] must have name and value")
+    return (len(errors) == 0, errors)
+
+
 def validate_layout(layout: dict | list) -> tuple[bool, list[str]]:
     if isinstance(layout, list):
         layout = {"widgets": layout}
     if not isinstance(layout, dict):
         return (False, ["Layout must be object or array"])
     contract = LayoutContract(widgets=layout.get("widgets", []))
-    return contract.validate_widgets()
+    ok, errors = contract.validate_widgets()
+    if not ok:
+        return (False, errors)
+    for i, w in enumerate(contract.widgets):
+        if isinstance(w, dict) and w.get("type") in ("chart", "table", "funnel"):
+            ok_ds, err_ds = validate_dataset(w)
+            if not ok_ds:
+                errors.extend([f"widget[{i}]: {e}" for e in err_ds])
+    return (len(errors) == 0, errors)

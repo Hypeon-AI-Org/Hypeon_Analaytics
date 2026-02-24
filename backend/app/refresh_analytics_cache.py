@@ -4,11 +4,15 @@ Computes business overview, campaign performance, funnel, and actions from marke
 """
 from __future__ import annotations
 
+import logging
+import time
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 from . import analytics_cache
 from .analytics_cache import DEFAULT_CLIENT_ID
+
+logger = logging.getLogger(__name__)
 
 
 def _serialize_value(v) -> float | str | None:
@@ -30,6 +34,7 @@ def do_refresh(
     Load from BQ, compute aggregates, and fill analytics_cache for (organization_id, client_id).
     Returns summary dict with keys updated and any error message.
     """
+    t0 = time.perf_counter()
     cid = int(client_id) if client_id is not None else DEFAULT_CLIENT_ID
     result: dict = {"organization_id": organization_id, "client_id": cid, "updated": [], "error": None}
 
@@ -192,4 +197,9 @@ def do_refresh(
         set_cache_ready(True)
         set_cache_last_refresh()
 
+    duration_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "cache_refresh org=%s client_id=%s duration_ms=%.0f updated=%s error=%s",
+        organization_id, cid, duration_ms, result["updated"], result["error"],
+    )
     return result

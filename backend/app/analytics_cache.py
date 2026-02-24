@@ -25,6 +25,9 @@ _cache_ready = False
 _cache_last_refresh: Optional[float] = None
 _lock_ready = threading.Lock()
 
+# Freshness guard: if cache older than this, API returns "Refreshing data" (503)
+CACHE_STALE_SECONDS = 30 * 60  # 30 minutes
+
 # Dashboard API latency (last N requests, ms) for /health/analytics
 _latency_samples: list[float] = []
 _latency_max_samples = 100
@@ -53,6 +56,19 @@ def set_cache_last_refresh(ts: Optional[float] = None) -> None:
 
 def get_cache_last_refresh() -> Optional[float]:
     return _cache_last_refresh
+
+
+def get_cache_age_seconds() -> Optional[float]:
+    """Seconds since last refresh, or None if never refreshed."""
+    if _cache_last_refresh is None:
+        return None
+    return time.time() - _cache_last_refresh
+
+
+def is_cache_stale() -> bool:
+    """True if cache is older than CACHE_STALE_SECONDS (e.g. DAG failed)."""
+    age = get_cache_age_seconds()
+    return age is not None and age > CACHE_STALE_SECONDS
 
 
 def record_dashboard_latency_ms(ms: float) -> None:

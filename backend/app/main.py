@@ -14,8 +14,12 @@ except Exception:
     pass
 
 import json
+import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,7 +58,7 @@ app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_crede
 from .middleware.cache_ready import CacheReadyMiddleware
 app.add_middleware(CacheReadyMiddleware)
 
-# Copilot rate limit: 15 req/min per user
+# Copilot rate limit: 20 req/min per user
 from .middleware.rate_limit import CopilotRateLimitMiddleware
 app.add_middleware(CopilotRateLimitMiddleware)
 
@@ -375,6 +379,7 @@ def copilot_v1_query(
 ):
     """Free-form Copilot: single context, mode routing, returns summary, top_drivers, recommended_actions, confidence, optional layout."""
     org = get_organization_id(request)
+    t0 = time.perf_counter()
     from .copilot.copilot_facade import query_copilot
     out = query_copilot(
         body.query,
@@ -383,6 +388,8 @@ def copilot_v1_query(
         session_id=body.session_id,
         insight_id=body.insight_id,
     )
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    logger.info("copilot_query org=%s latency_ms=%.0f", org, elapsed_ms)
     return out
 
 
@@ -390,8 +397,11 @@ def _copilot_v1_stream_gen(body: CopilotV1QueryBody, org: str):
     def emit(ev: dict) -> str:
         return "data: " + json.dumps(ev) + "\n\n"
     yield emit({"phase": "loading", "message": "Building context…"})
+    t0 = time.perf_counter()
     from .copilot.copilot_facade import query_copilot
     out = query_copilot(body.query, org, client_id=body.client_id, session_id=body.session_id, insight_id=body.insight_id)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    logger.info("copilot_stream org=%s latency_ms=%.0f", org, elapsed_ms)
     yield emit({"phase": "done", "data": out})
 
 
@@ -436,18 +446,24 @@ def health():
 
 @app.get("/health/analytics")
 def health_analytics():
-    """Observability: cache_last_refresh, cache_status, latency_avg (dashboard API)."""
+    """Observability: cache_last_refresh, cache_status, cache_age_seconds, cache_stale, latency_avg."""
     from .analytics_cache import (
         get_cache_ready,
         get_cache_last_refresh,
+        get_cache_age_seconds,
+        is_cache_stale,
         get_latency_avg_ms,
     )
     ready = get_cache_ready()
     last_refresh = get_cache_last_refresh()
+    age_sec = get_cache_age_seconds()
+    stale = is_cache_stale()
     latency_avg = get_latency_avg_ms()
     return {
         "cache_status": "ready" if ready else "empty",
         "cache_last_refresh": last_refresh,
+        "cache_age_seconds": round(age_sec, 1) if age_sec is not None else None,
+        "cache_stale": stale,
         "latency_avg_ms": round(latency_avg, 2) if latency_avg is not None else None,
     }
 

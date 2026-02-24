@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { copilotStreamV1 } from '../api'
 import DynamicDashboardRenderer from './DynamicDashboardRenderer'
+import DashboardRendererErrorBoundary from './DashboardRendererErrorBoundary'
 
 export default function CopilotPanel({ open, onClose, initialQuery = 'What should I do today?', explainInsightId = null }) {
   const [query, setQuery] = useState(initialQuery)
@@ -92,7 +93,11 @@ export default function CopilotPanel({ open, onClose, initialQuery = 'What shoul
             {result.confidence != null && (
               <p className="text-xs text-slate-500">Confidence: {Number(result.confidence * 100).toFixed(0)}%</p>
             )}
-            {result.layout && <DynamicDashboardRenderer layout={result.layout} />}
+            {result.layout && (
+              <DashboardRendererErrorBoundary>
+                <DynamicDashboardRenderer layout={result.layout} />
+              </DashboardRendererErrorBoundary>
+            )}
           </>
         )}
       </div>

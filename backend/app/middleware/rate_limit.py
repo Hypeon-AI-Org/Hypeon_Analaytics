@@ -12,8 +12,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-# 15 requests per 60 seconds per key
-RATE_LIMIT_N = 15
+# 20 requests per 60 seconds per key (per user)
+RATE_LIMIT_N = 20
 RATE_LIMIT_WINDOW_SEC = 60
 
 # key -> deque of timestamps
@@ -43,7 +43,7 @@ def _is_over_limit(key: str) -> bool:
 
 
 class CopilotRateLimitMiddleware(BaseHTTPMiddleware):
-    """Limit POST /api/v1/copilot/query and /api/v1/copilot/stream to 15 req/min per user."""
+    """Limit POST /api/v1/copilot/query and /api/v1/copilot/stream to 20 req/min per user."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.scope.get("path") or ""
@@ -53,6 +53,6 @@ class CopilotRateLimitMiddleware(BaseHTTPMiddleware):
         if _is_over_limit(key):
             return JSONResponse(
                 status_code=429,
-                content={"code": "RATE_LIMIT_EXCEEDED", "message": "Too many Copilot requests. Limit 15 per minute."},
+                content={"code": "RATE_LIMIT_EXCEEDED", "message": "Too many Copilot requests. Limit 20 per minute."},
             )
         return await call_next(request)

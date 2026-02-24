@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { fetchBusinessOverview, queryCopilot } from '../api'
 import DynamicDashboardRenderer from '../components/DynamicDashboardRenderer'
+import DashboardRendererErrorBoundary from '../components/DashboardRendererErrorBoundary'
 
 function Skeleton({ className = '' }) {
   return <div className={`animate-pulse bg-slate-200 rounded ${className}`} />
@@ -91,7 +92,11 @@ export default function DashboardHome() {
         </div>
       </div>
 
-      {copilotLayout && <DynamicDashboardRenderer layout={copilotLayout} />}
+      {copilotLayout && (
+        <DashboardRendererErrorBoundary>
+          <DynamicDashboardRenderer layout={copilotLayout} />
+        </DashboardRendererErrorBoundary>
+      )}
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between">
