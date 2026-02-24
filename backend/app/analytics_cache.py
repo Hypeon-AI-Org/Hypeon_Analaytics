@@ -1,43 +1,89 @@
 """
-Analytics Serving Layer: in-memory cache for dashboard API.
-Dashboard endpoints read ONLY from this cache (no BigQuery at request time). Target <300ms.
-Populated by refresh_analytics_cache script; optionally warmed on backend startup.
+Analytics Serving Layer: Redis (Option A) or in-memory fallback.
+Dashboard endpoints read ONLY from this cache. Target <300ms.
+Populated by refresh_analytics_cache on startup; health blocks until cache ready.
 """
 from __future__ import annotations
 
 import threading
-from datetime import date, datetime, timedelta
+import time
 from typing import Any, Optional
 
-# Key: (organization_id, client_id). client_id 0 = default/aggregate.
-_cache: dict[tuple[str, int], dict[str, Any]] = {}
-_lock = threading.Lock()
+from .cache_backend import (
+    cache_get,
+    cache_set,
+    cache_get_all,
+    cache_set_all,
+    cache_has_any,
+)
 
 # Default client_id when not specified
 DEFAULT_CLIENT_ID = 1
+
+# Cache readiness: set True after first successful refresh (startup or admin)
+_cache_ready = False
+_cache_last_refresh: Optional[float] = None
+_lock_ready = threading.Lock()
+
+# Dashboard API latency (last N requests, ms) for /health/analytics
+_latency_samples: list[float] = []
+_latency_max_samples = 100
+_latency_lock = threading.Lock()
 
 
 def _key(organization_id: str, client_id: Optional[int]) -> tuple[str, int]:
     return (organization_id or "default", int(client_id) if client_id is not None else DEFAULT_CLIENT_ID)
 
 
+def set_cache_ready(ready: bool = True) -> None:
+    with _lock_ready:
+        global _cache_ready
+        _cache_ready = ready
+
+
+def get_cache_ready() -> bool:
+    with _lock_ready:
+        return _cache_ready
+
+
+def set_cache_last_refresh(ts: Optional[float] = None) -> None:
+    global _cache_last_refresh
+    _cache_last_refresh = ts or time.time()
+
+
+def get_cache_last_refresh() -> Optional[float]:
+    return _cache_last_refresh
+
+
+def record_dashboard_latency_ms(ms: float) -> None:
+    with _latency_lock:
+        _latency_samples.append(ms)
+        if len(_latency_samples) > _latency_max_samples:
+            _latency_samples.pop(0)
+
+
+def get_latency_avg_ms() -> Optional[float]:
+    with _latency_lock:
+        if not _latency_samples:
+            return None
+        return sum(_latency_samples) / len(_latency_samples)
+
+
 def get_cached_business_overview(
     organization_id: str,
     client_id: Optional[int] = None,
 ) -> Optional[dict]:
-    """Return cached business overview or None if not populated."""
-    with _lock:
-        data = _cache.get(_key(organization_id, client_id), {}).get("business_overview")
-    return data
+    org, cid = _key(organization_id, client_id)
+    data = cache_get(org, cid, "business_overview")
+    return data if isinstance(data, dict) else None
 
 
 def get_cached_campaign_performance(
     organization_id: str,
     client_id: Optional[int] = None,
 ) -> list[dict]:
-    """Return cached campaign performance list (empty if not populated)."""
-    with _lock:
-        data = _cache.get(_key(organization_id, client_id), {}).get("campaign_performance")
+    org, cid = _key(organization_id, client_id)
+    data = cache_get(org, cid, "campaign_performance")
     return data if isinstance(data, list) else []
 
 
@@ -45,68 +91,18 @@ def get_cached_funnel(
     organization_id: str,
     client_id: Optional[int] = None,
 ) -> Optional[dict]:
-    """Return cached funnel metrics or None."""
-    with _lock:
-        data = _cache.get(_key(organization_id, client_id), {}).get("funnel")
-    return data
+    org, cid = _key(organization_id, client_id)
+    data = cache_get(org, cid, "funnel")
+    return data if isinstance(data, dict) else None
 
 
 def get_cached_actions(
     organization_id: str,
     client_id: Optional[int] = None,
 ) -> list[dict]:
-    """Return cached actions list (empty if not populated)."""
-    with _lock:
-        data = _cache.get(_key(organization_id, client_id), {}).get("actions")
+    org, cid = _key(organization_id, client_id)
+    data = cache_get(org, cid, "actions")
     return data if isinstance(data, list) else []
-
-
-def set_cached_business_overview(
-    organization_id: str,
-    client_id: int,
-    payload: dict,
-) -> None:
-    with _lock:
-        key = _key(organization_id, client_id)
-        if key not in _cache:
-            _cache[key] = {}
-        _cache[key]["business_overview"] = payload
-
-
-def set_cached_campaign_performance(
-    organization_id: str,
-    client_id: int,
-    payload: list[dict],
-) -> None:
-    with _lock:
-        key = _key(organization_id, client_id)
-        if key not in _cache:
-            _cache[key] = {}
-        _cache[key]["campaign_performance"] = payload
-
-
-def set_cached_funnel(
-    organization_id: str,
-    client_id: int,
-    payload: dict,
-) -> None:
-    with _lock:
-        key = _key(organization_id, client_id)
-        if key not in _cache:
-            _cache[key] = {}
-        _cache[key]["funnel"] = payload
-
-
-def set_cached_actions(
-    organization_id: str,
-    client_id: int,
-    payload: list[dict],
-) -> None:
-    with _lock:
-        key = _key(organization_id, client_id)
-        if key not in _cache:
-            _cache[key] = {}
-        _cache[key]["actions"] = payload
 
 
 def refresh_cache_for_org_client(
@@ -118,16 +114,15 @@ def refresh_cache_for_org_client(
     funnel: Optional[dict] = None,
     actions: Optional[list[dict]] = None,
 ) -> None:
-    """Set all cache entries for one (org, client). Used by refresh script."""
-    with _lock:
-        key = _key(organization_id, client_id)
-        if key not in _cache:
-            _cache[key] = {}
-        if business_overview is not None:
-            _cache[key]["business_overview"] = business_overview
-        if campaign_performance is not None:
-            _cache[key]["campaign_performance"] = campaign_performance
-        if funnel is not None:
-            _cache[key]["funnel"] = funnel
-        if actions is not None:
-            _cache[key]["actions"] = actions
+    org, cid = _key(organization_id, client_id)
+    data = {}
+    if business_overview is not None:
+        data["business_overview"] = business_overview
+    if campaign_performance is not None:
+        data["campaign_performance"] = campaign_performance
+    if funnel is not None:
+        data["funnel"] = funnel
+    if actions is not None:
+        data["actions"] = actions
+    if data:
+        cache_set_all(org, cid, data)

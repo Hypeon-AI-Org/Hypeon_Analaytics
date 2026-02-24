@@ -187,4 +187,9 @@ def do_refresh(
     except Exception as e:
         result["error"] = result["error"] or str(e)
 
+    if result["updated"] and not result["error"]:
+        from .analytics_cache import set_cache_ready, set_cache_last_refresh
+        set_cache_ready(True)
+        set_cache_last_refresh()
+
     return result

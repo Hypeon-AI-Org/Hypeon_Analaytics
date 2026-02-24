@@ -34,24 +34,33 @@ from .copilot_synthesizer import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """On startup: wire Gemini as Copilot LLM when configured; warm analytics cache."""
+    """On startup: wire Gemini; run refresh_analytics_cache (mandatory). Health blocks until cache ready."""
     try:
         from .llm_gemini import is_gemini_configured, make_gemini_copilot_client
         if is_gemini_configured():
             set_llm_client(make_gemini_copilot_client())
     except Exception:
-        pass  # keep default stub if Gemini not available
-    # Cache warmup: populate analytics cache from BQ so first dashboard requests are fast
-    try:
-        from .refresh_analytics_cache import do_refresh
-        do_refresh(organization_id="default", client_id=1)
-    except Exception:
         pass
+    # Mandatory: warm analytics cache on startup; health check blocks API until cache ready
+    from .refresh_analytics_cache import do_refresh
+    do_refresh(organization_id="default", client_id=1)
     yield
 
 
 app = FastAPI(title="HypeOn Analytics V1 API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# Cache-ready: block dashboard and /health until cache is ready (503)
+from .middleware.cache_ready import CacheReadyMiddleware
+app.add_middleware(CacheReadyMiddleware)
+
+# Copilot rate limit: 15 req/min per user
+from .middleware.rate_limit import CopilotRateLimitMiddleware
+app.add_middleware(CopilotRateLimitMiddleware)
+
+# Record dashboard API latency for /health/analytics
+from .middleware.latency import DashboardLatencyMiddleware
+app.add_middleware(DashboardLatencyMiddleware)
 
 # Dashboard API (reads from analytics cache only; <300ms target)
 from .api.dashboard import router as dashboard_router
@@ -418,7 +427,29 @@ def simulate_budget_shift(
 
 @app.get("/health")
 def health():
+    """Liveness: 503 until cache ready (middleware). Once ready, returns ok."""
+    from .analytics_cache import get_cache_ready
+    if not get_cache_ready():
+        raise HTTPException(503, detail={"code": "CACHE_NOT_READY", "message": "Analytics cache not ready"})
     return {"status": "ok"}
+
+
+@app.get("/health/analytics")
+def health_analytics():
+    """Observability: cache_last_refresh, cache_status, latency_avg (dashboard API)."""
+    from .analytics_cache import (
+        get_cache_ready,
+        get_cache_last_refresh,
+        get_latency_avg_ms,
+    )
+    ready = get_cache_ready()
+    last_refresh = get_cache_last_refresh()
+    latency_avg = get_latency_avg_ms()
+    return {
+        "cache_status": "ready" if ready else "empty",
+        "cache_last_refresh": last_refresh,
+        "latency_avg_ms": round(latency_avg, 2) if latency_avg is not None else None,
+    }
 
 
 @app.get("/system/health")
