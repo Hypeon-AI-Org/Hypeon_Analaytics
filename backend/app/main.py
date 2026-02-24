@@ -34,18 +34,40 @@ from .copilot_synthesizer import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """On startup: wire Gemini as Copilot LLM when configured."""
+    """On startup: wire Gemini as Copilot LLM when configured; warm analytics cache."""
     try:
         from .llm_gemini import is_gemini_configured, make_gemini_copilot_client
         if is_gemini_configured():
             set_llm_client(make_gemini_copilot_client())
     except Exception:
         pass  # keep default stub if Gemini not available
+    # Cache warmup: populate analytics cache from BQ so first dashboard requests are fast
+    try:
+        from .refresh_analytics_cache import do_refresh
+        do_refresh(organization_id="default", client_id=1)
+    except Exception:
+        pass
     yield
 
 
 app = FastAPI(title="HypeOn Analytics V1 API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# Dashboard API (reads from analytics cache only; <300ms target)
+from .api.dashboard import router as dashboard_router
+app.include_router(dashboard_router, prefix="/api/v1")
+
+
+@app.post("/api/v1/admin/refresh-cache")
+def admin_refresh_cache(
+    request: Request,
+    _role: str = Depends(require_role("admin")),
+):
+    """Refresh analytics cache from BQ. Used by DAG or manual trigger. Requires admin."""
+    org = get_organization_id(request)
+    from .refresh_analytics_cache import do_refresh
+    result = do_refresh(organization_id=org, client_id=1)
+    return result
 
 
 # ----- Auth and tenant context -----
@@ -93,6 +115,13 @@ class InsightApplyBody(BaseModel):
 
 class CopilotQueryBody(BaseModel):
     insight_id: str
+
+
+class CopilotV1QueryBody(BaseModel):
+    query: str
+    client_id: Optional[int] = None
+    session_id: Optional[str] = None
+    insight_id: Optional[str] = None
 
 
 class SimulateBudgetShiftBody(BaseModel):
@@ -323,6 +352,50 @@ def copilot_stream(
     log_copilot_query(org, body.insight_id)
     return StreamingResponse(
         _copilot_stream_gen(body.insight_id, org),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ----- V1 Copilot (free-form query, structured context, optional layout) -----
+@app.post("/api/v1/copilot/query")
+def copilot_v1_query(
+    body: CopilotV1QueryBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Free-form Copilot: single context, mode routing, returns summary, top_drivers, recommended_actions, confidence, optional layout."""
+    org = get_organization_id(request)
+    from .copilot.copilot_facade import query_copilot
+    out = query_copilot(
+        body.query,
+        org,
+        client_id=body.client_id,
+        session_id=body.session_id,
+        insight_id=body.insight_id,
+    )
+    return out
+
+
+def _copilot_v1_stream_gen(body: CopilotV1QueryBody, org: str):
+    def emit(ev: dict) -> str:
+        return "data: " + json.dumps(ev) + "\n\n"
+    yield emit({"phase": "loading", "message": "Building context…"})
+    from .copilot.copilot_facade import query_copilot
+    out = query_copilot(body.query, org, client_id=body.client_id, session_id=body.session_id, insight_id=body.insight_id)
+    yield emit({"phase": "done", "data": out})
+
+
+@app.post("/api/v1/copilot/stream")
+def copilot_v1_stream(
+    body: CopilotV1QueryBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Stream V1 Copilot response (SSE): loading then done with full structured data."""
+    org = get_organization_id(request)
+    return StreamingResponse(
+        _copilot_v1_stream_gen(body, org),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

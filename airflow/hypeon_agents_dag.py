@@ -67,6 +67,29 @@ def _run_anomaly_detector():
         subprocess.run([os.environ.get("PYTHON", "python"), str(agent)], check=True, cwd=repo)
 
 
+def _run_refresh_analytics_cache():
+    """Refresh analytics cache by calling backend /api/v1/admin/refresh-cache. Set REFRESH_CACHE_URL to API base (e.g. https://api.example.com)."""
+    import os
+    import subprocess
+    from pathlib import Path
+    url = os.environ.get("REFRESH_CACHE_URL")
+    if url:
+        import urllib.request
+        req = urllib.request.Request(
+            url.rstrip("/") + "/api/v1/admin/refresh-cache",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "X-Organization-Id": "default"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            resp.read()
+        return
+    repo = os.environ.get("HYPEON_REPO_PATH", "/home/airflow/gcs/dags/hypeon-analytics")
+    script = Path(repo) / "backend" / "scripts" / "refresh_analytics_cache.py"
+    if script.exists():
+        subprocess.run([os.environ.get("PYTHON", "python"), str(script), "--in-process"], check=True, cwd=repo)
+
+
 with DAG(
     dag_id="hypeon_agents_v1",
     default_args=DEFAULT_ARGS,
@@ -92,5 +115,10 @@ with DAG(
         python_callable=_run_anomaly_detector,
     )
 
-    run_unified_table >> run_agents
+    refresh_analytics_cache = PythonOperator(
+        task_id="refresh_analytics_cache",
+        python_callable=_run_refresh_analytics_cache,
+    )
+
+    run_unified_table >> run_agents >> refresh_analytics_cache
     # Optional: run_agents >> run_anomaly (or run_anomaly on separate schedule)
