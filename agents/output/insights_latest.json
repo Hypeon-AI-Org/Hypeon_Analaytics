@@ -1,0 +1,190 @@
+[
+  {
+    "insight_id": "207178d6ecf9c58edbc0b82a9f3a9f96",
+    "organization_id": "default",
+    "client_id": 1,
+    "workspace_id": null,
+    "entity_type": "campaign",
+    "entity_id": "nan_nan",
+    "insight_type": "funnel_leak",
+    "summary": "Entity nan_nan has high traffic but conversion rate < 1%.",
+    "explanation": "Sessions = 4439, conversions = 43.0, conversion_rate = 0.009686866411353908.",
+    "recommendation": "Audit landing page and checkout for nan_nan; improve CRO or audience targeting.",
+    "expected_impact": {
+      "metric": "revenue",
+      "estimate": 657.43,
+      "units": "currency"
+    },
+    "expected_impact_value": 657.43,
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "metric": "revenue",
+        "value": 6574.274663,
+        "baseline": 2301.0353272222223,
+        "period": "28d"
+      },
+      {
+        "metric": "roas",
+        "value": 0.0,
+        "baseline": null,
+        "period": "28d"
+      }
+    ],
+    "detected_by": [
+      "funnel_leak"
+    ],
+    "status": "new",
+    "created_at": "2026-02-23T15:35:56.346927+00:00",
+    "applied_at": null,
+    "history": null,
+    "insight_hash": "207178d6ecf9c58edbc0b82a9f3a9f96",
+    "priority_score": 558.8155,
+    "severity": "medium",
+    "rank": 1,
+    "potential_savings": 0.0,
+    "potential_revenue_gain": 657.43,
+    "risk_level": "medium"
+  },
+  {
+    "insight_id": "45b5d1a95d1a24a91ce6acf85551a85e",
+    "organization_id": "default",
+    "client_id": 1,
+    "workspace_id": null,
+    "entity_type": "campaign",
+    "entity_id": "23034602618_192452068704",
+    "insight_type": "scale_opportunity",
+    "summary": "Campaign 23034602618_192452068704 ROAS is >20% above 28-day baseline.",
+    "explanation": "ROAS = 17.539778599605565, 28d avg = 12.334156560975368. Opportunity to scale.",
+    "recommendation": "Increase budget for 23034602618_192452068704 within acceptable CAC/ROAS guardrails.",
+    "expected_impact": {
+      "metric": "revenue",
+      "estimate": 776.64,
+      "units": "currency"
+    },
+    "expected_impact_value": 776.64,
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "metric": "revenue",
+        "value": 5233.628727087,
+        "baseline": 372.70783434042215,
+        "period": "28d"
+      },
+      {
+        "metric": "roas",
+        "value": 17.539778599605565,
+        "baseline": 12.334156560975368,
+        "period": "28d"
+      }
+    ],
+    "detected_by": [
+      "scale_opportunity"
+    ],
+    "status": "new",
+    "created_at": "2026-02-23T15:35:56.354096+00:00",
+    "applied_at": null,
+    "history": null,
+    "insight_hash": "45b5d1a95d1a24a91ce6acf85551a85e",
+    "priority_score": 330.072,
+    "severity": "low",
+    "rank": 2,
+    "potential_savings": 0.0,
+    "potential_revenue_gain": 776.64,
+    "risk_level": "low"
+  },
+  {
+    "insight_id": "a296e01a710cdfda8ee413df0f3a32bc",
+    "organization_id": "default",
+    "client_id": 1,
+    "workspace_id": null,
+    "entity_type": "campaign",
+    "entity_id": "23034602618_189028062920",
+    "insight_type": "scale_opportunity",
+    "summary": "Campaign 23034602618_189028062920 ROAS is >20% above 28-day baseline.",
+    "explanation": "ROAS = 11.625893236074582, 28d avg = 5.5087547920975775. Opportunity to scale.",
+    "recommendation": "Increase budget for 23034602618_189028062920 within acceptable CAC/ROAS guardrails.",
+    "expected_impact": {
+      "metric": "revenue",
+      "estimate": 208.25,
+      "units": "currency"
+    },
+    "expected_impact_value": 208.25,
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "metric": "revenue",
+        "value": 791.562241,
+        "baseline": 56.80540313969489,
+        "period": "28d"
+      },
+      {
+        "metric": "roas",
+        "value": 11.625893236074582,
+        "baseline": 5.5087547920975775,
+        "period": "28d"
+      }
+    ],
+    "detected_by": [
+      "scale_opportunity"
+    ],
+    "status": "new",
+    "created_at": "2026-02-23T15:35:56.354096+00:00",
+    "applied_at": null,
+    "history": null,
+    "insight_hash": "a296e01a710cdfda8ee413df0f3a32bc",
+    "priority_score": 88.50625,
+    "severity": "low",
+    "rank": 3,
+    "potential_savings": 0.0,
+    "potential_revenue_gain": 208.25,
+    "risk_level": "low"
+  },
+  {
+    "insight_id": "0a1b44ad3d28eb9c2c78185af0460ddb",
+    "organization_id": "default",
+    "client_id": 1,
+    "workspace_id": null,
+    "entity_type": "campaign",
+    "entity_id": "23092324681_190231567567",
+    "insight_type": "scale_opportunity",
+    "summary": "Campaign 23092324681_190231567567 ROAS is >20% above 28-day baseline.",
+    "explanation": "ROAS = 0.162777155947735, 28d avg = 0.03421272846296508. Opportunity to scale.",
+    "recommendation": "Increase budget for 23092324681_190231567567 within acceptable CAC/ROAS guardrails.",
+    "expected_impact": {
+      "metric": "revenue",
+      "estimate": 20.35,
+      "units": "currency"
+    },
+    "expected_impact_value": 20.35,
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "metric": "revenue",
+        "value": 51.540700445,
+        "baseline": 2.0192352338841992,
+        "period": "28d"
+      },
+      {
+        "metric": "roas",
+        "value": 0.162777155947735,
+        "baseline": 0.03421272846296508,
+        "period": "28d"
+      }
+    ],
+    "detected_by": [
+      "scale_opportunity"
+    ],
+    "status": "new",
+    "created_at": "2026-02-23T15:35:56.354096+00:00",
+    "applied_at": null,
+    "history": null,
+    "insight_hash": "0a1b44ad3d28eb9c2c78185af0460ddb",
+    "priority_score": 8.64875,
+    "severity": "low",
+    "rank": 4,
+    "potential_savings": 0.0,
+    "potential_revenue_gain": 20.35,
+    "risk_level": "low"
+  }
+]

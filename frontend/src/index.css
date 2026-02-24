@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Prose-like styles for Copilot markdown */
+.prose p + p { margin-top: 0.5rem; }
+.prose ul { padding-left: 1.25rem; margin-top: 0.5rem; }
+.prose ol { padding-left: 1.25rem; margin-top: 0.5rem; }
+.prose li { margin-top: 0.25rem; }
+.prose strong { font-weight: 600; }
+.prose code { font-size: 0.875em; padding: 0.125rem 0.25rem; background: rgb(241 245 249); border-radius: 0.25rem; }

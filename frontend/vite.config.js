@@ -9,6 +9,9 @@ export default defineConfig({
       '/recommendations': { target: 'http://localhost:8000', changeOrigin: true },
       '/simulate_budget_shift': { target: 'http://localhost:8000', changeOrigin: true },
       '/copilot_query': { target: 'http://localhost:8000', changeOrigin: true },
+      '/copilot': { target: 'http://localhost:8000', changeOrigin: true },
+      '/copilot/stream': { target: 'http://localhost:8000', changeOrigin: true },
+      '/decisions': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
   test: {

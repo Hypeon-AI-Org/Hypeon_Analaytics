@@ -7,6 +7,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except Exception:
+    pass
+
 BQ_PROJECT = os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
 ANALYTICS_DATASET = os.environ.get("ANALYTICS_DATASET", "analytics")
 

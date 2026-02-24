@@ -1,20 +1,50 @@
 """
 FastAPI backend: enterprise multi-tenant, insights (paginated/top), review/apply, decision history, copilot.
 All queries scoped by organization_id; no cross-client leakage.
+Copilot uses Gemini when GEMINI_API_KEY or Vertex AI is configured.
 """
 from __future__ import annotations
 
+try:
+    from pathlib import Path
+    from dotenv import load_dotenv
+    _root = Path(__file__).resolve().parents[2]
+    load_dotenv(_root / ".env")
+except Exception:
+    pass
+
+import json
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import get_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
 from .config_loader import get
-from .copilot_synthesizer import synthesize as copilot_synthesize
+from .copilot_synthesizer import (
+    set_llm_client,
+    synthesize as copilot_synthesize,
+    prepare_copilot_prompt,
+    _parse_llm_response,
+)
 
-app = FastAPI(title="HypeOn Analytics V1 API", version="2.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """On startup: wire Gemini as Copilot LLM when configured."""
+    try:
+        from .llm_gemini import is_gemini_configured, make_gemini_copilot_client
+        if is_gemini_configured():
+            set_llm_client(make_gemini_copilot_client())
+    except Exception:
+        pass  # keep default stub if Gemini not available
+    yield
+
+
+app = FastAPI(title="HypeOn Analytics V1 API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -237,6 +267,33 @@ def get_decisions_history(
     return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
 
 
+def _copilot_stream_gen(insight_id: str, org: str):
+    """Generator yielding SSE events: phase loading | generating | chunk | done."""
+    def emit(ev: dict) -> str:
+        return "data: " + json.dumps(ev) + "\n\n"
+
+    yield emit({"phase": "loading", "message": "Accessing insights & decision history…"})
+    prompt, err = prepare_copilot_prompt(insight_id, organization_id=org)
+    if err is not None:
+        yield emit({"phase": "error", "error": err.get("error", "Unknown error")})
+        return
+
+    yield emit({"phase": "generating", "message": "Generating analysis…"})
+    try:
+        from .llm_gemini import stream_gemini
+        acc = []
+        for chunk in stream_gemini(prompt):
+            acc.append(chunk)
+            yield emit({"phase": "chunk", "text": chunk})
+        full = "".join(acc)
+        out = _parse_llm_response(full)
+        out["insight_id"] = insight_id
+        out["provenance"] = out.get("provenance") or "analytics_insights, decision_history, supporting_metrics_snapshot"
+        yield emit({"phase": "done", "data": out})
+    except Exception as e:
+        yield emit({"phase": "error", "error": str(e)[:300]})
+
+
 @app.post("/copilot/query")
 @app.post("/copilot_query")
 def copilot_query(
@@ -252,6 +309,23 @@ def copilot_query(
     if "error" in out:
         raise HTTPException(404, detail={"code": "NOT_FOUND", "message": out["error"]})
     return out
+
+
+@app.post("/copilot/stream")
+def copilot_stream(
+    body: CopilotQueryBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Stream Copilot response with phases: loading, generating, chunk, done. SSE."""
+    org = get_organization_id(request)
+    from .audit_logger import log_copilot_query
+    log_copilot_query(org, body.insight_id)
+    return StreamingResponse(
+        _copilot_stream_gen(body.insight_id, org),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/simulate_budget_shift")

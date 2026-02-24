@@ -6,7 +6,13 @@ from typing import List
 
 
 def get_bq_project() -> str:
+    """GCP project for application DB (analytics_insights, decision_history, marketing_performance_daily, etc.)."""
     return os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
+
+
+def get_source_bq_project() -> str:
+    """GCP project for raw input data (Ads, GA4). Defaults to BQ_PROJECT if unset (single-project setup)."""
+    return os.environ.get("BQ_SOURCE_PROJECT") or get_bq_project()
 
 
 def get_analytics_dataset() -> str:

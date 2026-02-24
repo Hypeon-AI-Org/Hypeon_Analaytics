@@ -9,11 +9,17 @@ from __future__ import annotations
 import os
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except Exception:
+    pass
 
 from backend.app.rules_engine import generate_insights
 from backend.app.observability.logger import log_agent_run
@@ -40,7 +46,7 @@ def get_run_date() -> date:
     raw = os.environ.get("RUN_DATE")
     if raw:
         return date.fromisoformat(raw)
-    return (datetime.utcnow() - timedelta(days=1)).date()
+    return (datetime.now(timezone.utc) - timedelta(days=1)).date()
 
 
 def get_since_date(as_of: date) -> date | None:
@@ -80,7 +86,21 @@ def main() -> int:
                 insights = suppress_noise(insights, existing_insight_hashes=existing_hashes)
             if insights:
                 from backend.app.clients.bigquery import insert_insights
-                insert_insights(insights)
+                try:
+                    insert_insights(insights)
+                except Exception as insert_err:
+                    err_msg = str(insert_err)
+                    if "404" in err_msg or "Not found" in err_msg or "NotFound" in err_msg:
+                        out_dir = ROOT / "agents" / "output"
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        out_file = out_dir / "insights_latest.json"
+                        import json
+                        from backend.app.clients.bigquery import _sanitize_for_json
+                        with open(out_file, "w") as f:
+                            json.dump([_sanitize_for_json(i) for i in insights], f, indent=2, default=str)
+                        print(f"  client_id={cid}: {len(insights)} insights (BigQuery write failed: table not found; wrote to {out_file})", file=sys.stderr)
+                    else:
+                        raise
             total += len(insights)
             print(f"  client_id={cid}: {len(insights)} insights")
         except Exception as e:

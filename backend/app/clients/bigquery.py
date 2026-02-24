@@ -1,6 +1,7 @@
 """BigQuery client for HypeOn Analytics V1. Enterprise: organization_id, workspace_id, scoped queries."""
 from __future__ import annotations
 
+import math
 import os
 import uuid
 from datetime import date, timedelta
@@ -16,7 +17,8 @@ def get_client():
     if _client is None:
         from google.cloud import bigquery
         project = os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
-        _client = bigquery.Client(project=project)
+        location = os.environ.get("BQ_LOCATION")
+        _client = bigquery.Client(project=project, location=location) if location else bigquery.Client(project=project)
     return _client
 
 
@@ -56,13 +58,34 @@ def load_marketing_performance(
     return client.query(query).to_dataframe()
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Replace NaN/Inf and non-JSON-serializable values so insert_rows_json succeeds."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(x) for x in obj]
+    if isinstance(obj, (int, str, bool)):
+        return obj
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    try:
+        f = float(obj)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    except (TypeError, ValueError):
+        pass
+    return obj
+
+
 def insert_insights(rows: list[dict[str, Any]]) -> None:
     """Insert insight rows into analytics_insights. Caller ensures idempotency (insight_hash)."""
     if not rows:
         return
     client = get_client()
     table_id = f"{_project()}.{get_analytics_dataset()}.analytics_insights"
-    errors = client.insert_rows_json(table_id, rows)
+    sanitized = [_sanitize_for_json(r) for r in rows]
+    errors = client.insert_rows_json(table_id, sanitized)
     if errors:
         raise RuntimeError(f"BigQuery insert errors: {errors}")
 
@@ -125,7 +148,10 @@ def get_decision_history(
     ORDER BY created_at DESC
     LIMIT {limit}
     """
-    df = client.query(q).to_dataframe()
+    try:
+        df = client.query(q).to_dataframe()
+    except Exception:
+        return []
     if df.empty:
         return []
     return [dict(row) for _, row in df.iterrows()]
@@ -141,6 +167,38 @@ def list_insights(
     min_created_date: Optional[date] = None,
 ) -> list[dict]:
     """List insights scoped by organization_id; no cross-tenant leakage. Use min_created_date for partition pruning."""
+    # Local fallback: serve from JSON file when INSIGHTS_JSON_PATH is set (e.g. agents/output/insights_latest.json)
+    json_path = os.environ.get("INSIGHTS_JSON_PATH")
+    if json_path and os.path.isfile(json_path):
+        try:
+            import json
+            with open(json_path) as f:
+                rows = json.load(f)
+            if not isinstance(rows, list):
+                rows = [rows]
+            out = []
+            for r in rows:
+                if (r.get("organization_id") or "") != organization_id:
+                    continue
+                if client_id is not None and r.get("client_id") != client_id:
+                    continue
+                if workspace_id and (r.get("workspace_id") or "") != workspace_id:
+                    continue
+                if status and (r.get("status") or "") != status:
+                    continue
+                if min_created_date and r.get("created_at"):
+                    try:
+                        from datetime import datetime
+                        created = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")).date()
+                        if created < min_created_date:
+                            continue
+                    except Exception:
+                        pass
+                out.append(r)
+            out.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+            return out[offset : offset + limit]
+        except Exception:
+            pass
     client = get_client()
     project = _project()
     dataset = get_analytics_dataset()
@@ -171,6 +229,22 @@ def list_insights(
 
 
 def get_insight_by_id(insight_id: str, organization_id: Optional[str] = None) -> Optional[dict]:
+    json_path = os.environ.get("INSIGHTS_JSON_PATH")
+    if json_path and os.path.isfile(json_path):
+        try:
+            import json
+            with open(json_path) as f:
+                rows = json.load(f)
+            if not isinstance(rows, list):
+                rows = [rows]
+            for r in rows:
+                if r.get("insight_id") == insight_id:
+                    if organization_id and (r.get("organization_id") or "") != organization_id:
+                        continue
+                    return r
+            return None
+        except Exception:
+            pass
     client = get_client()
     project = _project()
     dataset = get_analytics_dataset()
@@ -200,7 +274,10 @@ def get_supporting_metrics_snapshot(organization_id: str, client_id: int, insigh
     WHERE organization_id = '{organization_id.replace("'", "''")}' AND client_id = {client_id} AND insight_id = '{insight_id.replace("'", "''")}'
     ORDER BY created_at DESC LIMIT 1
     """
-    df = client.query(q).to_dataframe()
+    try:
+        df = client.query(q).to_dataframe()
+    except Exception:
+        return None
     if df.empty:
         return None
     import json

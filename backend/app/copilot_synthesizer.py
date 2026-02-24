@@ -159,6 +159,53 @@ def _parse_llm_response(text: str) -> dict:
         }
 
 
+def prepare_copilot_prompt(
+    insight_id: str,
+    *,
+    organization_id: Optional[str] = None,
+    load_insight: Optional[Callable[[str], Optional[dict]]] = None,
+) -> tuple[Optional[str], Optional[dict]]:
+    """
+    Load context and build prompt for Copilot. Returns (prompt, error_dict).
+    If error_dict is not None, prompt is None and caller should yield error.
+    """
+    if load_insight is None:
+        from .clients.bigquery import (
+            get_insight_by_id,
+            get_decision_history,
+            get_supporting_metrics_snapshot,
+            list_insights,
+            get_latest_executive_summary,
+        )
+        insight = get_insight_by_id(insight_id, organization_id)
+        if insight is None:
+            return None, {"error": "insight not found", "insight_id": insight_id}
+        org = (insight.get("organization_id") or organization_id or "default")
+        client_id = int(insight.get("client_id") or 0)
+        history = get_decision_history(org, client_id=client_id, insight_id=insight_id)
+        supporting = get_supporting_metrics_snapshot(org, client_id, insight_id)
+        recent_insights = list_insights(org, client_id=client_id, status=None, limit=10, offset=0)
+        executive_summary_list = get_latest_executive_summary(org, client_id=client_id, limit=1)
+        executive_summary = executive_summary_list[0] if executive_summary_list else None
+        trend_history = get_decision_history(org, client_id=client_id, status="applied", limit=15)
+    else:
+        insight = load_insight(insight_id)
+        if insight is None:
+            return None, {"error": "insight not found", "insight_id": insight_id}
+        history = []
+        supporting = None
+        recent_insights = None
+        executive_summary = None
+        trend_history = None
+    prompt = build_prompt_grounded(
+        insight, history, supporting,
+        recent_insights=recent_insights,
+        executive_summary=executive_summary,
+        trend_history=trend_history,
+    )
+    return prompt, None
+
+
 def synthesize(
     insight_id: str,
     *,

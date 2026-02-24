@@ -1,6 +1,7 @@
 -- HypeOn Analytics V1: Unified marketing performance table
--- Sources: Ads dataset (146568), GA4 dataset (analytics_444259275)
--- Run with run_unified_table.py which substitutes {BQ_PROJECT}, {ADS_DATASET}, {GA4_DATASET}, {ANALYTICS_DATASET}
+-- Sources: Ads + GA4 in BQ_SOURCE_PROJECT (can be different from app project).
+-- Output: marketing_performance_daily in BQ_PROJECT.ANALYTICS_DATASET (app DB).
+-- Run with run_unified_table.py which substitutes {BQ_PROJECT}, {BQ_SOURCE_PROJECT}, {ADS_DATASET}, {GA4_DATASET}, {ANALYTICS_DATASET}
 
 CREATE OR REPLACE TABLE `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
 PARTITION BY date
@@ -22,7 +23,7 @@ WITH ads_daily AS (
     COALESCE(metrics_impressions, 0) AS impressions,
     COALESCE(metrics_conversions, 0) AS conversions,
     COALESCE(metrics_conversions_value, 0) AS revenue
-  FROM `{BQ_PROJECT}.{ADS_DATASET}.ads_AdGroupBasicStats_4221201460`
+  FROM `{BQ_SOURCE_PROJECT}.{ADS_DATASET}.ads_AdGroupBasicStats_4221201460`
   WHERE segments_date IS NOT NULL
     AND customer_id IS NOT NULL
 ),
@@ -44,7 +45,7 @@ ga4_daily AS (
     0 AS impressions,
     COUNTIF(event_name = 'purchase' OR event_name = 'conversion') AS conversions,
     COALESCE(SUM(COALESCE(event_value_in_usd, 0)), 0) AS revenue
-  FROM `{BQ_PROJECT}.{GA4_DATASET}.events_*`
+  FROM `{BQ_SOURCE_PROJECT}.{GA4_DATASET}.events_*`
   WHERE event_date IS NOT NULL
   GROUP BY 1, 2, 3, 4, 5, 6
 ),

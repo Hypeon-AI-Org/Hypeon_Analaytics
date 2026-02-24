@@ -26,11 +26,13 @@ FastAPI (Cloud Run) ← analytics_insights / copilot / simulate
    - Run unified table job (see below).
 
 2. **Environment variables**
-   - `BQ_PROJECT` — GCP project ID
-   - `ANALYTICS_DATASET` — dataset for `marketing_performance_daily` and `analytics_insights`
+   - `BQ_PROJECT` — GCP project for application DB (`marketing_performance_daily`, `analytics_insights`, `decision_history`, etc.)
+   - `BQ_SOURCE_PROJECT` — optional; GCP project for raw input (Ads + GA4). If unset, defaults to `BQ_PROJECT` (single-project). Use a different value when input and app DB are in separate projects.
+   - `ANALYTICS_DATASET` — dataset for `marketing_performance_daily` and `analytics_insights` (in `BQ_PROJECT`)
    - `ADS_DATASET` — Google Ads dataset (e.g. `146568`)
    - `GA4_DATASET` — GA4 dataset (e.g. `analytics_444259275`)
-   - `GOOGLE_APPLICATION_CREDENTIALS` — path to service account key JSON
+   - **BigQuery auth (local):** run `gcloud auth application-default login` and leave `GOOGLE_APPLICATION_CREDENTIALS` unset (ADC). **Cloud Run / CI:** set `GOOGLE_APPLICATION_CREDENTIALS` or use workload identity.
+   - **Copilot (Gemini):** uses **Google AI Studio**; set `GEMINI_API_KEY` (from [AI Studio](https://aistudio.google.com/app/apikey)). This is separate from BigQuery/gcloud auth.
    - `API_KEY` — optional; if set, requests use `X-API-Key` header
    - `RULES_CONFIG_PATH` — optional; path to [rules_config.json](rules_config.json) (default: repo root)
    - `CORS_ORIGINS` — comma-separated origins for frontend
