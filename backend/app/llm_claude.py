@@ -31,23 +31,25 @@ def _is_retryable_error(exc: BaseException) -> bool:
         or "rate limit" in s_lower
     )
 
-# Optional: CLAUDE_MODEL (default primary), COPILOT_MAX_OUTPUT_TOKENS (default 2048)
-# CLAUDE_MODEL_FALLBACKS: comma-separated model ids to try after primary. If unset, uses full list (newest first).
+# Optional: CLAUDE_MODEL (override primary; if unset, use DEFAULT_CLAUDE_MODEL), COPILOT_MAX_OUTPUT_TOKENS (default 2048)
+# CLAUDE_MODEL_FALLBACKS: comma-separated model ids to try after primary. If unset, uses CHEAP_FIRST order.
 
-# All known Claude models in descending order by release date (newest first). Used when CLAUDE_MODEL_FALLBACKS is not set.
-CLAUDE_MODELS_BY_RELEASE_DESC = [
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-1-20250805",
-    "claude-opus-4-20250514",
-    "claude-sonnet-4-20250514",
-    "claude-3-7-sonnet-20250219",
-    "claude-3-5-sonnet-20241022",
+# Best-value default: Sonnet 3.5 (good quality, lower cost than Opus). Used when CLAUDE_MODEL is not set in env.
+DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+
+# Fallback order: cheaper models first (Haiku, then Sonnet, then Opus), then Gemini if all Claude models fail.
+CLAUDE_MODELS_CHEAP_FIRST = [
     "claude-3-5-haiku-20241022",
     "claude-3-haiku-20240307",
+    "claude-haiku-4-5-20251001",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-7-sonnet-20250219",
+    "claude-sonnet-4-20250514",
+    "claude-sonnet-4-6",
+    "claude-opus-4-20250514",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-6",
 ]
-DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
 
 
 def _get_model() -> str:
@@ -55,14 +57,13 @@ def _get_model() -> str:
 
 
 def _get_claude_models_to_try() -> list[str]:
-    """Return list of Claude model ids to try in order: primary first, then fallbacks (descending by release date)."""
+    """Return list of Claude model ids to try: primary first (best-and-cheap default), then fallbacks cheap-first, then Gemini in chat_handler."""
     primary = (os.environ.get("CLAUDE_MODEL") or "").strip() or DEFAULT_CLAUDE_MODEL
     fallbacks_str = (os.environ.get("CLAUDE_MODEL_FALLBACKS") or "").strip()
     if fallbacks_str:
         fallbacks = [m.strip() for m in fallbacks_str.split(",") if m.strip()]
     else:
-        # Use full list in descending release order, but put primary first and skip duplicates
-        fallbacks = [m for m in CLAUDE_MODELS_BY_RELEASE_DESC if m != primary]
+        fallbacks = [m for m in CLAUDE_MODELS_CHEAP_FIRST if m != primary]
     seen = {primary}
     out = [primary]
     for m in fallbacks:
