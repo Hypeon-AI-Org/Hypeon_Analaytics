@@ -34,21 +34,18 @@ def _is_retryable_error(exc: BaseException) -> bool:
 # Optional: CLAUDE_MODEL (override primary; if unset, use DEFAULT_CLAUDE_MODEL), COPILOT_MAX_OUTPUT_TOKENS (default 2048)
 # CLAUDE_MODEL_FALLBACKS: comma-separated model ids to try after primary. If unset, uses CHEAP_FIRST order.
 
-# Cheap-and-best default: Haiku 3.5 (fast, low cost, good quality). Override with CLAUDE_MODEL in env if needed.
-DEFAULT_CLAUDE_MODEL = "claude-3-5-haiku-20241022"
+# Cheap-and-best default: Haiku 4.5 (current as of 2026). Override with CLAUDE_MODEL in env if needed.
+# Previous claude-3-5-haiku-20241022 was retired Feb 2026.
+DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
-# Fallback order: cheaper models first (Haiku, then Sonnet, then Opus), then Gemini if all Claude models fail.
+# Fallback order: current models first (Haiku 4.5, then Sonnet 4.6, Opus), then Gemini if all Claude models fail.
 CLAUDE_MODELS_CHEAP_FIRST = [
-    "claude-3-5-haiku-20241022",
-    "claude-3-haiku-20240307",
     "claude-haiku-4-5-20251001",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-7-sonnet-20250219",
-    "claude-sonnet-4-20250514",
     "claude-sonnet-4-6",
-    "claude-opus-4-20250514",
-    "claude-opus-4-1-20250805",
     "claude-opus-4-6",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
 ]
 
 
