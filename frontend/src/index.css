@@ -2,10 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Prose-like styles for Copilot markdown */
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-gradient-app min-h-screen text-slate-800;
+  }
+}
+
+/* Glass container utility */
+@layer components {
+  .glass-container {
+    @apply bg-white/70 backdrop-blur-md border border-white/50 shadow-[0_8px_32px_0_rgba(131,24,67,0.08)];
+  }
+  .glass-card {
+    @apply bg-white/90 backdrop-blur-md border border-pink-100/60 shadow-card rounded-xl;
+  }
+  .glass-panel {
+    @apply bg-white/80 backdrop-blur-lg border border-pink-100/50 shadow-[0_8px_32px_0_rgba(131,24,67,0.08)] rounded-2xl;
+  }
+}
+
+/* Prose for Copilot markdown - enterprise, no emoji */
 .prose p + p { margin-top: 0.5rem; }
 .prose ul { padding-left: 1.25rem; margin-top: 0.5rem; }
 .prose ol { padding-left: 1.25rem; margin-top: 0.5rem; }
 .prose li { margin-top: 0.25rem; }
 .prose strong { font-weight: 600; }
-.prose code { font-size: 0.875em; padding: 0.125rem 0.25rem; background: rgb(241 245 249); border-radius: 0.25rem; }
+.prose code { font-size: 0.875em; padding: 0.125rem 0.25rem; background: rgb(253 242 248); border-radius: 0.25rem; border: 1px solid rgb(249 168 212); }
+.prose table { border-collapse: collapse; width: 100%; }
+.prose th, .prose td { border: 1px solid rgb(251 207 232); padding: 0.5rem 0.75rem; text-align: left; }
+.prose th { background: rgb(253 242 248); font-weight: 600; }

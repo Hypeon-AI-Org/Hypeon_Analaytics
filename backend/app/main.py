@@ -8,10 +8,15 @@ from __future__ import annotations
 try:
     from pathlib import Path
     from dotenv import load_dotenv
-    _root = Path(__file__).resolve().parents[2]
-    load_dotenv(_root / ".env")
-except Exception:
-    pass
+    _root = Path(__file__).resolve().parents[2]  # repo root when main.py is backend/app/main.py
+    _env_file = _root / ".env"
+    loaded = load_dotenv(_env_file)
+    if not loaded and Path.cwd() != _root:
+        loaded = load_dotenv(Path.cwd() / ".env")
+except Exception as _e:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger(__name__).warning("Could not load .env: %s", _e)
 
 import json
 import logging
@@ -19,9 +24,13 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
+from .logging_config import configure_logging
+configure_logging()
+
 logger = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -38,20 +47,80 @@ from .copilot_synthesizer import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """On startup: wire Gemini; run refresh_analytics_cache (mandatory). Health blocks until cache ready."""
+    """On startup: wire Claude (if ANTHROPIC_API_KEY) or Gemini for Copilot; run refresh_analytics_cache (mandatory). Health blocks until cache ready."""
     try:
+        import os
+        _has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+        _has_gemini = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+        logger.info("Copilot env: ANTHROPIC_API_KEY=%s GEMINI/GOOGLE_API_KEY=%s", "set" if _has_anthropic else "not set", "set" if _has_gemini else "not set")
+        from .llm_claude import is_claude_configured, make_claude_copilot_client
         from .llm_gemini import is_gemini_configured, make_gemini_copilot_client
-        if is_gemini_configured():
+        if is_claude_configured():
+            set_llm_client(make_claude_copilot_client())
+            logger.info("Copilot LLM: Claude (ANTHROPIC_API_KEY)%s", " | Gemini as fallback" if is_gemini_configured() else "")
+        elif is_gemini_configured():
             set_llm_client(make_gemini_copilot_client())
-    except Exception:
-        pass
+            logger.info("Copilot LLM: Gemini")
+        else:
+            logger.warning("Copilot: no LLM configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY for chat.")
+    except Exception as e:
+        logger.warning("Copilot LLM setup failed: %s", e, exc_info=True)
+    # Set default GCP project for ADC so "No project ID" warning is avoided
+    import os
+    if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        os.environ["GOOGLE_CLOUD_PROJECT"] = get_bq_project()
     # Mandatory: warm analytics cache on startup; health check blocks API until cache ready
     from .refresh_analytics_cache import do_refresh
-    do_refresh(organization_id="default", client_id=1)
+    logger.info("Refreshing analytics cache (org=default, client_id=1)...")
+    refresh_result = do_refresh(organization_id="default", client_id=1)
+    if refresh_result.get("error"):
+        logger.warning("Cache refresh had errors: %s", refresh_result.get("error"))
+    else:
+        logger.info("Cache ready. Updated: %s", refresh_result.get("updated", []))
+    logger.info("Request logging active: every API request will be logged (METHOD path -> status | duration)")
     yield
 
 
 app = FastAPI(title="HypeOn Analytics V1 API", version="2.0.0", lifespan=lifespan)
+
+
+# ----- Global exception handlers (consistent JSON + logging) -----
+@app.exception_handler(HTTPException)
+def http_exception_handler(request: Request, exc: HTTPException):
+    """Log 4xx/5xx and return consistent JSON."""
+    if exc.status_code >= 500:
+        logger.error(
+            "HTTP %s %s -> %s | detail=%s",
+            exc.status_code,
+            request.method,
+            request.url.path,
+            exc.detail,
+            exc_info=False,
+        )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception):
+    """Log full traceback and return 500 with safe message."""
+    logger.exception(
+        "Unhandled exception: %s %s -> %s | %s",
+        request.method,
+        request.url.path,
+        type(exc).__name__,
+        str(exc)[:200],
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred. Check server logs.",
+            }
+        },
+    )
+
+
 app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # Cache-ready: block dashboard and /health until cache is ready (503)
@@ -66,24 +135,43 @@ app.add_middleware(CopilotRateLimitMiddleware)
 from .middleware.latency import DashboardLatencyMiddleware
 app.add_middleware(DashboardLatencyMiddleware)
 
+# Request logging: outermost so every API request is logged (method, path, status, duration)
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
+
+
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        path = request.url.path or ""
+        if request.query_params:
+            path = f"{path}?{request.query_params}"
+        logger.info("%s %s ...", request.method, path)
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        logger.info(
+            "%s %s -> %s | %s ms",
+            request.method,
+            path,
+            response.status_code,
+            round(elapsed_ms, 1),
+        )
+        return response
+
+
+app.add_middleware(RequestLogMiddleware)
+
 # Dashboard API (reads from analytics cache only; <300ms target)
 from .api.dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="/api/v1")
 
-
-@app.post("/api/v1/admin/refresh-cache")
-def admin_refresh_cache(
-    request: Request,
-    _role: str = Depends(require_role("admin")),
-):
-    """Refresh analytics cache from BQ. Used by DAG or manual trigger. Requires admin."""
-    org = get_organization_id(request)
-    from .refresh_analytics_cache import do_refresh
-    result = do_refresh(organization_id=org, client_id=1)
-    return result
+# Analysis API (queries raw staging tables in BigQuery for in-depth breakdowns)
+from .api.analysis import router as analysis_router
+app.include_router(analysis_router, prefix="/api/v1")
 
 
-# ----- Auth and tenant context -----
+# ----- Auth and tenant context (must be before routes that use them) -----
 def get_organization_id(request: Request) -> str:
     return request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "default"
 
@@ -108,6 +196,19 @@ def require_role(*allowed: str):
             raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "Insufficient role"})
         return role
     return dep
+
+
+@app.post("/api/v1/admin/refresh-cache")
+def admin_refresh_cache(
+    request: Request,
+    _role: str = Depends(require_role("admin")),
+):
+    """Refresh analytics cache from BQ. Used by DAG or manual trigger. Requires admin."""
+    org = get_organization_id(request)
+    logger.info("Admin refresh-cache | org=%s", org)
+    from .refresh_analytics_cache import do_refresh
+    result = do_refresh(organization_id=org, client_id=1)
+    return result
 
 
 # ----- Structured error -----
@@ -135,6 +236,12 @@ class CopilotV1QueryBody(BaseModel):
     client_id: Optional[int] = None
     session_id: Optional[str] = None
     insight_id: Optional[str] = None
+
+
+class CopilotChatBody(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    client_id: Optional[int] = None
 
 
 class SimulateBudgetShiftBody(BaseModel):
@@ -216,10 +323,18 @@ def get_insights(
     offset: int = Query(0, ge=0),
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Paginated insights scoped by organization."""
+    """Paginated insights scoped by organization. Returns empty list on error so UI can load."""
     org = get_organization_id(request)
     workspace = get_workspace_id(request)
-    items = _list_insights_scoped(org, client_id, workspace, status, limit, offset)
+    try:
+        items = _list_insights_scoped(org, client_id, workspace, status, limit, offset)
+    except Exception as e:
+        logger.warning(
+            "list_insights failed | org=%s client_id=%s error=%s",
+            org, client_id, str(e)[:300],
+            exc_info=True,
+        )
+        items = []
     return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
 
 
@@ -310,21 +425,29 @@ def get_decisions_history(
 
 
 def _copilot_stream_gen(insight_id: str, org: str):
-    """Generator yielding SSE events: phase loading | generating | chunk | done."""
+    """Generator yielding SSE events: phase loading | generating | chunk | done. Any exception yields error phase (no 500)."""
     def emit(ev: dict) -> str:
         return "data: " + json.dumps(ev) + "\n\n"
 
-    yield emit({"phase": "loading", "message": "Accessing insights & decision history…"})
-    prompt, err = prepare_copilot_prompt(insight_id, organization_id=org)
-    if err is not None:
-        yield emit({"phase": "error", "error": err.get("error", "Unknown error")})
-        return
-
-    yield emit({"phase": "generating", "message": "Generating analysis…"})
     try:
-        from .llm_gemini import stream_gemini
+        yield emit({"phase": "loading", "message": "Accessing insights & decision history…"})
+        prompt, err = prepare_copilot_prompt(insight_id, organization_id=org)
+        if err is not None:
+            yield emit({"phase": "error", "error": err.get("error", "Unknown error")})
+            return
+
+        yield emit({"phase": "generating", "message": "Generating analysis…"})
+        from .llm_claude import is_claude_configured, stream_claude
+        from .llm_gemini import is_gemini_configured, stream_gemini
+        if is_claude_configured():
+            stream_fn = stream_claude
+        elif is_gemini_configured():
+            stream_fn = stream_gemini
+        else:
+            yield emit({"phase": "error", "error": "No LLM configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY."})
+            return
         acc = []
-        for chunk in stream_gemini(prompt):
+        for chunk in stream_fn(prompt):
             acc.append(chunk)
             yield emit({"phase": "chunk", "text": chunk})
         full = "".join(acc)
@@ -333,6 +456,7 @@ def _copilot_stream_gen(insight_id: str, org: str):
         out["provenance"] = out.get("provenance") or "analytics_insights, decision_history, supporting_metrics_snapshot"
         yield emit({"phase": "done", "data": out})
     except Exception as e:
+        logger.exception("Copilot stream failed")
         yield emit({"phase": "error", "error": str(e)[:300]})
 
 
@@ -418,6 +542,57 @@ def copilot_v1_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/api/v1/copilot/chat")
+def copilot_chat(
+    body: CopilotChatBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Chatbot-style Copilot: session history, returns text and optional layout (tables/charts) for this turn."""
+    org = get_organization_id(request)
+    logger.info("Copilot chat | org=%s session_id=%s", org, body.session_id or "(new)")
+    try:
+        from .copilot.chat_handler import chat
+        out = chat(org, (body.message or "").strip(), session_id=body.session_id, client_id=body.client_id)
+        return out
+    except Exception as e:
+        logger.exception(
+            "Copilot chat failed | org=%s session_id=%s error=%s",
+            org, body.session_id or "(new)", str(e)[:200],
+        )
+        return {
+            "text": "I couldn't complete that. Please try again. If this persists, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set.",
+            "session_id": body.session_id or "",
+        }
+
+
+@app.get("/api/v1/copilot/chat/history")
+def copilot_chat_history(
+    request: Request,
+    session_id: str = Query(..., description="Session to load"),
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Return message history for a chat session (for restoring UI after refresh)."""
+    org = get_organization_id(request)
+    from .copilot.session_memory import get_session_store
+    store = get_session_store()
+    messages = store.get_messages(org, session_id)
+    return {"session_id": session_id, "messages": messages}
+
+
+@app.get("/api/v1/copilot/sessions")
+def copilot_sessions(
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Return list of chat sessions for the org (title, session_id, updated_at) for history UI."""
+    org = get_organization_id(request)
+    from .copilot.session_memory import get_session_store
+    store = get_session_store()
+    sessions = store.get_sessions(org)
+    return {"sessions": sessions}
 
 
 @app.post("/simulate_budget_shift")

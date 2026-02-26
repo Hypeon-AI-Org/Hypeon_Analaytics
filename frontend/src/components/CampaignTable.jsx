@@ -24,20 +24,20 @@ export default function CampaignTable({ items = [], loading }) {
 
   if (loading) {
     return (
-      <div className="animate-pulse rounded-lg border border-slate-200 bg-slate-50 h-64" />
+      <div className="animate-pulse rounded-xl border border-pink-100/60 bg-pink-50/30 h-64" />
     )
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+    <div className="glass-card overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50">
+        <table className="min-w-full divide-y divide-pink-100/60">
+          <thead className="bg-pink-50/50">
             <tr>
               {['campaign', 'spend', 'revenue', 'roas', 'status'].map((col) => (
                 <th
                   key={col}
-                  className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase cursor-pointer hover:bg-slate-100"
+                  className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-pink-50/50"
                   onClick={() => toggle(col)}
                 >
                   {col === 'roas' ? 'ROAS' : col.charAt(0).toUpperCase() + col.slice(1)}
@@ -46,14 +46,14 @@ export default function CampaignTable({ items = [], loading }) {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-pink-100/40">
             {sorted.map((row, i) => (
-              <tr key={i} className="hover:bg-slate-50">
-                <td className="px-4 py-3 text-sm text-slate-800">{row.campaign}</td>
-                <td className="px-4 py-3 text-sm text-slate-700">{formatNum(row.spend)}</td>
-                <td className="px-4 py-3 text-sm text-slate-700">{formatNum(row.revenue)}</td>
-                <td className="px-4 py-3 text-sm text-slate-700">{formatNum(row.roas)}</td>
-                <td className="px-4 py-3">
+              <tr key={i} className="hover:bg-pink-50/30 transition-colors">
+                <td className="px-5 py-3 text-sm text-slate-800">{row.campaign}</td>
+                <td className="px-5 py-3 text-sm text-slate-700">{formatNum(row.spend)}</td>
+                <td className="px-5 py-3 text-sm text-slate-700">{formatNum(row.revenue)}</td>
+                <td className="px-5 py-3 text-sm text-slate-700">{formatNum(row.roas)}</td>
+                <td className="px-5 py-3">
                   <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[row.status] || 'bg-slate-100 text-slate-800'}`}>
                     {row.status}
                   </span>

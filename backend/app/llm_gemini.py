@@ -91,6 +91,117 @@ def make_gemini_copilot_client() -> Callable[[str], str]:
     return _call
 
 
+def _tools_to_gemini_declarations(tools: list[dict]):
+    """Convert COPILOT_TOOLS format to Gemini FunctionDeclaration list."""
+    from google.genai import types
+    decls = []
+    for t in tools:
+        decl = types.FunctionDeclaration(
+            name=t["name"],
+            description=t.get("description") or "",
+            parameters=t.get("input_schema") or {"type": "object", "properties": {}},
+        )
+        decls.append(decl)
+    return decls
+
+
+def chat_completion_with_tools(
+    messages: list[dict],
+    tools: list[dict],
+    *,
+    system: str | None = None,
+) -> dict:
+    """
+    Multi-turn chat with tool use. messages = [{"role": "user"|"assistant", "content": "..." or list}, ...].
+    Builds a single prompt from messages; passes tools to Gemini. Returns {"text": "..."} or {"tool_calls": [...], "content_blocks": [...]}.
+    """
+    if not messages:
+        return {"text": ""}
+    try:
+        from google.genai.types import GenerateContentConfig, Content, Part
+
+        client = _build_client()
+        model = _get_model()
+        max_tokens = _get_max_output_tokens()
+
+        # Build conversation as prompt string for Gemini
+        prompt_parts = []
+        if system:
+            prompt_parts.append(f"[System]\n{system}\n\n")
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            role = (m.get("role") or "user").capitalize()
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        prompt_parts.append(f"{role}: {block.get('text', '')}\n\n")
+                    elif isinstance(block, dict) and block.get("type") == "tool_result":
+                        prompt_parts.append(f"[Tool result]\n{block.get('content', '')}\n\n")
+            else:
+                prompt_parts.append(f"{role}: {content}\n\n")
+        prompt_parts.append("Assistant:")
+        prompt_str = "".join(prompt_parts)
+
+        config = GenerateContentConfig(
+            temperature=0.2,
+            max_output_tokens=max_tokens,
+            tools=_tools_to_gemini_declarations(tools),
+        )
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt_str,
+            config=config,
+        )
+
+        # Parse response for text or function_call
+        text_parts = []
+        tool_calls = []
+        content_blocks = []
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            content = getattr(candidates[0], "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                if getattr(part, "text", None):
+                    text_parts.append(part.text)
+                    content_blocks.append({"type": "text", "text": part.text})
+                fc = getattr(part, "function_call", None)
+                if fc:
+                    name = getattr(fc, "name", None) or ""
+                    raw_args = getattr(fc, "args", None)
+                    if isinstance(raw_args, dict):
+                        args = raw_args
+                    elif isinstance(raw_args, str):
+                        try:
+                            args = json.loads(raw_args) if raw_args else {}
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
+                    else:
+                        # Protobuf Struct or other: try to get dict
+                        try:
+                            args = dict(raw_args) if raw_args else {}
+                        except (TypeError, ValueError):
+                            args = {}
+                    if not isinstance(args, dict):
+                        args = {}
+                    tool_calls.append({"id": name, "name": name, "arguments": args})
+                    content_blocks.append({"type": "tool_use", "id": name, "name": name, "input": args})
+
+        if tool_calls:
+            return {"tool_calls": tool_calls, "content_blocks": content_blocks}
+        return {"text": "".join(text_parts).strip()}
+    except Exception as e:
+        logger.warning(
+            "Gemini chat with tools failed | error=%s | type=%s",
+            str(e)[:400],
+            type(e).__name__,
+            exc_info=False,
+        )
+        return {"text": "I couldn't complete that. Please try again."}
+
+
 def is_gemini_configured() -> bool:
     """True if Gemini API key or Vertex AI is configured so we can use Gemini for Copilot."""
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):

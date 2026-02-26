@@ -45,6 +45,7 @@ def do_refresh(
         )
         from .top_decisions import top_decisions
     except ImportError as e:
+        logger.warning("Cache refresh import failed: %s", e)
         result["error"] = str(e)
         return result
 
@@ -104,6 +105,7 @@ def do_refresh(
             )
             result["updated"].append("business_overview")
     except Exception as e:
+        logger.warning("Cache refresh business_overview failed: %s", e, exc_info=True)
         result["error"] = result["error"] or str(e)
 
     # ----- Campaign performance -----
@@ -192,10 +194,13 @@ def do_refresh(
     except Exception as e:
         result["error"] = result["error"] or str(e)
 
-    if result["updated"] and not result["error"]:
+    # Mark cache ready when core dashboard data was refreshed, even if actions/insights failed (e.g. analytics_insights table missing)
+    if result["updated"]:
         from .analytics_cache import set_cache_ready, set_cache_last_refresh
         set_cache_ready(True)
         set_cache_last_refresh()
+    if result["error"]:
+        logger.warning("Cache refresh partial/failed: %s", result["error"][:200])
 
     duration_ms = (time.perf_counter() - t0) * 1000
     logger.info(

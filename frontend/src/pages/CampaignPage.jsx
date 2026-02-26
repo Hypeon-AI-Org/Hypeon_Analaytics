@@ -1,26 +1,28 @@
 import React, { useState, useEffect } from 'react'
 import { fetchCampaignPerformance } from '../api'
 import CampaignTable from '../components/CampaignTable'
+import ErrorBanner from '../components/ErrorBanner'
 
 export default function CampaignPage() {
   const [data, setData] = useState({ items: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true)
+    setError(null)
     fetchCampaignPerformance()
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    load()
   }, [])
 
   if (error) {
-    return (
-      <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3" role="alert">
-        {error}
-      </div>
-    )
+    return <ErrorBanner message={error} onRetry={load} />
   }
 
   return (

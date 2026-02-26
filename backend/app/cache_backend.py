@@ -1,6 +1,7 @@
 """
-Cache backend: Redis (Option A) with in-memory fallback.
-If REDIS_URL is set, use Redis; otherwise in-memory dict. Same interface for analytics_cache.
+Cache backend: Redis with in-memory fallback.
+Uses REDIS_URL when set (works with Google Cloud Memorystore for Redis or any Redis server).
+Otherwise in-memory dict; cache is lost on restart. Same interface for analytics_cache.
 """
 from __future__ import annotations
 

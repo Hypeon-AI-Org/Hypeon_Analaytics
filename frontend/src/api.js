@@ -39,6 +39,29 @@ export async function fetchActions(params = {}) {
   return res.json()
 }
 
+// ----- Analysis API (raw staging tables, in-depth breakdowns) -----
+export async function fetchGoogleAdsAnalysis({ client_id, days, start_date, end_date } = {}) {
+  const sp = new URLSearchParams()
+  if (client_id != null) sp.set('client_id', client_id)
+  if (days != null) sp.set('days', days)
+  if (start_date) sp.set('start_date', start_date)
+  if (end_date) sp.set('end_date', end_date)
+  const res = await fetch(`${API_BASE}/api/v1/analysis/google-ads?${sp}`, { headers: defaultHeaders() })
+  if (!res.ok) throw new Error(res.statusText)
+  return res.json()
+}
+
+export async function fetchGoogleAnalyticsAnalysis({ client_id, days, start_date, end_date } = {}) {
+  const sp = new URLSearchParams()
+  if (client_id != null) sp.set('client_id', client_id)
+  if (days != null) sp.set('days', days)
+  if (start_date) sp.set('start_date', start_date)
+  if (end_date) sp.set('end_date', end_date)
+  const res = await fetch(`${API_BASE}/api/v1/analysis/google-analytics?${sp}`, { headers: defaultHeaders() })
+  if (!res.ok) throw new Error(res.statusText)
+  return res.json()
+}
+
 // ----- V1 Copilot (free-form query, structured response + optional layout) -----
 export async function queryCopilot({ query, client_id, session_id, insight_id } = {}) {
   const res = await fetch(`${API_BASE}/api/v1/copilot/query`, {
@@ -87,6 +110,34 @@ export function copilotStreamV1({ query, client_id, session_id, insight_id }, on
     }
   })()
   return { promise, cancel: () => controller.abort() }
+}
+
+// ----- Chat-style Copilot (session history + tables/charts) -----
+export async function copilotChat({ message, session_id, client_id } = {}) {
+  const res = await fetch(`${API_BASE}/api/v1/copilot/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ message: message || '', session_id, client_id }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail?.message || err.message || res.statusText)
+  }
+  return res.json()
+}
+
+export async function copilotChatHistory(session_id) {
+  const res = await fetch(`${API_BASE}/api/v1/copilot/chat/history?session_id=${encodeURIComponent(session_id)}`, {
+    headers: defaultHeaders(),
+  })
+  if (!res.ok) throw new Error(res.statusText)
+  return res.json()
+}
+
+export async function fetchCopilotSessions() {
+  const res = await fetch(`${API_BASE}/api/v1/copilot/sessions`, { headers: defaultHeaders() })
+  if (!res.ok) throw new Error(res.statusText)
+  return res.json()
 }
 
 // ----- Existing -----

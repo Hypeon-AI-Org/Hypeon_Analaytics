@@ -11,7 +11,9 @@ from .query_contract import validate_layout
 VALID_WIDGET_TYPES = frozenset(("kpi", "chart", "table", "funnel"))
 
 
-def _validate_widget_type(w: dict) -> bool:
+def _validate_widget_type(w: Any) -> bool:
+    if not isinstance(w, dict):
+        return False
     t = w.get("type")
     if t not in VALID_WIDGET_TYPES:
         return False
@@ -24,15 +26,32 @@ def _validate_widget_type(w: dict) -> bool:
     return True
 
 
-def _sanitize_widget(w: dict) -> dict:
+def _sanitize_widget(w: Any) -> dict:
     """Ensure widget has valid shape; drop invalid fields."""
+    if not isinstance(w, dict):
+        return {}
     t = w.get("type")
     if t == "table":
+        columns = []
+        for i, c in enumerate(w.get("columns") or []):
+            if isinstance(c, dict) and c.get("key"):
+                columns.append(c)
+            else:
+                label = str(c.get("label", c)) if isinstance(c, dict) else str(c)
+                columns.append({"key": str(i), "label": label})
+        rows = []
+        for r in (w.get("rows") or []):
+            if isinstance(r, dict):
+                rows.append(r)
+            elif isinstance(r, (list, tuple)):
+                rows.append({str(i): v for i, v in enumerate(r)})
+            else:
+                rows.append({})
         return {
             "type": "table",
             "title": w.get("title"),
-            "columns": [c if isinstance(c, dict) and c.get("key") else {"key": str(i), "label": str(c.get("label", ""))} for i, c in enumerate(w.get("columns") or [])],
-            "rows": [r if isinstance(r, dict) else {} for r in (w.get("rows") or [])],
+            "columns": columns,
+            "rows": rows,
         }
     if t == "chart":
         return {
@@ -100,8 +119,19 @@ def build_layout_from_context(
     # Campaign table
     if campaigns:
         cols = [{"key": "campaign", "label": "Campaign"}, {"key": "spend", "label": "Spend"}, {"key": "revenue", "label": "Revenue"}, {"key": "roas", "label": "ROAS"}, {"key": "status", "label": "Status"}]
-        rows = [{"campaign": c.get("campaign"), "spend": c.get("spend"), "revenue": c.get("revenue"), "roas": c.get("roas"), "status": c.get("status")} for c in campaigns[:20]]
-        widgets.append({"type": "table", "title": "Campaign Performance", "columns": cols, "rows": rows})
+        rows = []
+        for c in campaigns[:20]:
+            if not isinstance(c, dict):
+                continue
+            rows.append({
+                "campaign": c.get("campaign"),
+                "spend": c.get("spend"),
+                "revenue": c.get("revenue"),
+                "roas": c.get("roas"),
+                "status": c.get("status"),
+            })
+        if rows:
+            widgets.append({"type": "table", "title": "Campaign Performance", "columns": cols, "rows": rows})
 
     # Funnel
     if funnel.get("clicks") is not None or funnel.get("sessions") is not None or funnel.get("purchases") is not None:

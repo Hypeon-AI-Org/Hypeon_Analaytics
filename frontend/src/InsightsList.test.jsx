@@ -28,7 +28,7 @@ beforeEach(() => {
 test('shows loading then list of insights', async () => {
   fetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockInsights) })
   render(<InsightsList />)
-  expect(screen.getByText(/Loading/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Refresh/ })).toBeInTheDocument()
   await waitFor(() => {
     expect(screen.getByText(/Campaign c1 has spend but zero revenue/)).toBeInTheDocument()
   })
@@ -68,7 +68,7 @@ test('Simulate opens modal and shows projections when run', async () => {
   await userEvent.click(screen.getByRole('button', { name: /Run simulation/ }))
   await waitFor(() => {
     expect(screen.getByText(/Expected delta/)).toBeInTheDocument()
-    expect(screen.getByText(/10/)).toBeInTheDocument()
+    expect(screen.getByText(/Median/)).toBeInTheDocument()
   })
 })
 

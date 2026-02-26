@@ -4,6 +4,7 @@ All endpoints read from analytics_cache; no BigQuery in request path.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Request
@@ -21,6 +22,7 @@ def get_organization_id(request: Request) -> str:
 
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/business-overview")
@@ -30,6 +32,7 @@ def business_overview(
 ):
     """Return total_revenue, total_spend, blended_roas, conversion_rate, revenue_trend_7d, spend_trend_7d from cache."""
     org = get_organization_id(request)
+    logger.info("Dashboard: business-overview | org=%s client_id=%s", org, client_id)
     data = get_cached_business_overview(org, client_id)
     if data is None:
         return {
@@ -50,6 +53,7 @@ def campaign_performance(
 ):
     """Return list of { campaign, spend, revenue, roas, status } from cache."""
     org = get_organization_id(request)
+    logger.info("Dashboard: campaign-performance | org=%s client_id=%s", org, client_id)
     items = get_cached_campaign_performance(org, client_id)
     return {"items": items, "count": len(items)}
 
@@ -61,6 +65,7 @@ def funnel(
 ):
     """Return clicks, sessions, purchases, drop_percentages from cache."""
     org = get_organization_id(request)
+    logger.info("Dashboard: funnel | org=%s client_id=%s", org, client_id)
     data = get_cached_funnel(org, client_id)
     if data is None:
         return {"clicks": 0, "sessions": 0, "purchases": 0, "drop_percentages": []}
@@ -74,5 +79,6 @@ def actions(
 ):
     """Return top actions (increase_budget, reduce_budget, investigate) from cache."""
     org = get_organization_id(request)
+    logger.info("Dashboard: actions | org=%s client_id=%s", org, client_id)
     items = get_cached_actions(org, client_id)
     return {"items": items, "count": len(items)}

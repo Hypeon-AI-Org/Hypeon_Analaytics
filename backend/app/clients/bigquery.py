@@ -9,6 +9,12 @@ from typing import Any, Optional
 
 import pandas as pd
 
+
+def _is_table_not_found(exc: BaseException) -> bool:
+    """True if the exception indicates a missing table (404 / not found)."""
+    msg = (str(exc) or "").lower()
+    return "not found" in msg or "404" in msg or "notfound" in msg
+
 _client: Any = None
 
 
@@ -54,6 +60,50 @@ def load_marketing_performance(
     WHERE client_id = {client_id}
       AND date >= '{start.isoformat()}'
       AND date <= '{end.isoformat()}'
+    """
+    return client.query(query).to_dataframe()
+
+
+def load_ads_staging(
+    client_id: int,
+    start_date: date,
+    end_date: date,
+    organization_id: Optional[str] = None,
+) -> pd.DataFrame:
+    """Load raw Google Ads data from ads_daily_staging for a date range."""
+    client = get_client()
+    dataset = get_analytics_dataset()
+    project = _project()
+    query = f"""
+    SELECT client_id, date, campaign_id, ad_group_id, device,
+           spend, clicks, impressions, conversions, revenue
+    FROM `{project}.{dataset}.ads_daily_staging`
+    WHERE client_id = {client_id}
+      AND date >= '{start_date.isoformat()}'
+      AND date <= '{end_date.isoformat()}'
+    ORDER BY date
+    """
+    return client.query(query).to_dataframe()
+
+
+def load_ga4_staging(
+    client_id: int,
+    start_date: date,
+    end_date: date,
+    organization_id: Optional[str] = None,
+) -> pd.DataFrame:
+    """Load raw GA4 data from ga4_daily_staging for a date range."""
+    client = get_client()
+    dataset = get_analytics_dataset()
+    project = _project()
+    query = f"""
+    SELECT client_id, date, device,
+           sessions, conversions, revenue
+    FROM `{project}.{dataset}.ga4_daily_staging`
+    WHERE client_id = {client_id}
+      AND date >= '{start_date.isoformat()}'
+      AND date <= '{end_date.isoformat()}'
+    ORDER BY date
     """
     return client.query(query).to_dataframe()
 
@@ -222,7 +272,14 @@ def list_insights(
     ORDER BY created_at DESC
     LIMIT {limit} OFFSET {offset}
     """
-    df = client.query(q).to_dataframe()
+    try:
+        df = client.query(q).to_dataframe()
+    except Exception as e:
+        if _is_table_not_found(e):
+            import logging
+            logging.getLogger(__name__).debug("analytics_insights table not found; returning empty list")
+            return []
+        raise
     if df.empty:
         return []
     return [dict(row) for _, row in df.iterrows()]
@@ -257,9 +314,14 @@ def get_insight_by_id(insight_id: str, organization_id: Optional[str] = None) ->
     q = f"SELECT * FROM `{project}.{dataset}.analytics_insights` WHERE {' AND '.join(where)} LIMIT 1"
     try:
         df = client.query(q).to_dataframe()
-    except Exception:
-        q_fallback = f"SELECT * FROM `{project}.{dataset}.analytics_insights` WHERE insight_id = '{esc(insight_id)}' LIMIT 1"
-        df = client.query(q_fallback).to_dataframe()
+    except Exception as e:
+        if _is_table_not_found(e):
+            return None
+        try:
+            q_fallback = f"SELECT * FROM `{project}.{dataset}.analytics_insights` WHERE insight_id = '{esc(insight_id)}' LIMIT 1"
+            df = client.query(q_fallback).to_dataframe()
+        except Exception:
+            raise e
     if df.empty:
         return None
     return dict(df.iloc[0])
