@@ -5,13 +5,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': { target: 'http://localhost:8000', changeOrigin: true },
-      '/insights': { target: 'http://localhost:8000', changeOrigin: true },
-      '/recommendations': { target: 'http://localhost:8000', changeOrigin: true },
-      '/simulate_budget_shift': { target: 'http://localhost:8000', changeOrigin: true },
-      '/copilot_query': { target: 'http://localhost:8000', changeOrigin: true },
-      '/copilot': { target: 'http://localhost:8000', changeOrigin: true },
-      '/decisions': { target: 'http://localhost:8000', changeOrigin: true },
+      '/api': { target: 'http://localhost:8001', changeOrigin: true },
+      '/insights': { target: 'http://localhost:8001', changeOrigin: true },
+      '/recommendations': { target: 'http://localhost:8001', changeOrigin: true },
+      '/simulate_budget_shift': { target: 'http://localhost:8001', changeOrigin: true },
+      '/copilot_query': { target: 'http://localhost:8001', changeOrigin: true },
+      '/copilot': { target: 'http://localhost:8001', changeOrigin: true },
+      '/decisions': { target: 'http://localhost:8001', changeOrigin: true },
     },
   },
   test: {
