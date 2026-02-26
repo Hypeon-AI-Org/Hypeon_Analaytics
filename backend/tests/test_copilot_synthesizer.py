@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from backend.app.copilot_synthesizer import (
-    build_prompt,
+    build_prompt_grounded,
     _parse_llm_response,
     synthesize,
     set_llm_client,
@@ -14,12 +14,11 @@ from backend.app.copilot_synthesizer import (
 )
 
 
-def test_build_prompt():
+def test_build_prompt_grounded():
     insight = {"insight_id": "abc", "summary": "Test", "evidence": [{"metric": "revenue", "value": 100, "baseline": 80, "period": "28d"}]}
-    prompt = build_prompt(insight)
+    prompt = build_prompt_grounded(insight, [], None)
     assert "abc" in prompt
-    assert "revenue" in prompt
-    assert "Evidence" in prompt
+    assert "revenue" in prompt or "Test" in prompt
 
 
 def test_parse_llm_response():

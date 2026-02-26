@@ -18,7 +18,9 @@ def client():
 
 
 def test_health(client):
-    r = client.get("/health")
+    # Cache may not be ready when using TestClient (lifespan not run); mark ready for test
+    with patch("backend.app.analytics_cache.get_cache_ready", return_value=True):
+        r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 

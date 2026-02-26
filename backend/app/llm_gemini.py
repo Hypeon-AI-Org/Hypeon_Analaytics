@@ -199,7 +199,7 @@ def chat_completion_with_tools(
             type(e).__name__,
             exc_info=False,
         )
-        return {"text": "I couldn't complete that. Please try again."}
+        return {"text": "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary."}
 
 
 def is_gemini_configured() -> bool:

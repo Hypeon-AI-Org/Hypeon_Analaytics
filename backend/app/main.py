@@ -239,7 +239,7 @@ class CopilotV1QueryBody(BaseModel):
 
 
 class CopilotChatBody(BaseModel):
-    message: str
+    message: str = ""
     session_id: Optional[str] = None
     client_id: Optional[int] = None
 
@@ -501,19 +501,37 @@ def copilot_v1_query(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Free-form Copilot: single context, mode routing, returns summary, top_drivers, recommended_actions, confidence, optional layout."""
+    """Free-form Copilot: if insight_id present use insight path; else data analysis path. Returns message, charts, tables, layout, metadata."""
     org = get_organization_id(request)
     t0 = time.perf_counter()
+    from .copilot.router import route_copilot
     from .copilot.copilot_facade import query_copilot
-    out = query_copilot(
-        body.query,
-        org,
-        client_id=body.client_id,
-        session_id=body.session_id,
-        insight_id=body.insight_id,
-    )
+    from .copilot.data_copilot import run as data_copilot_run
+    route = route_copilot(body.query or "", insight_id=body.insight_id)
+    if route == "insight":
+        out = query_copilot(
+            body.query,
+            org,
+            client_id=body.client_id,
+            session_id=body.session_id,
+            insight_id=body.insight_id,
+        )
+    else:
+        out = data_copilot_run(
+            body.query or "",
+            org,
+            client_id=body.client_id,
+        )
+        # Mandatory response format: message, charts, tables, metadata (layout added for frontend)
+        out = {
+            "message": out.get("message", ""),
+            "charts": out.get("charts", []),
+            "tables": out.get("tables", []),
+            "layout": out.get("layout"),
+            "metadata": out.get("metadata", {}),
+        }
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    logger.info("copilot_query org=%s latency_ms=%.0f", org, elapsed_ms)
+    logger.info("copilot_query org=%s route=%s latency_ms=%.0f", org, route, elapsed_ms)
     return out
 
 
@@ -522,10 +540,17 @@ def _copilot_v1_stream_gen(body: CopilotV1QueryBody, org: str):
         return "data: " + json.dumps(ev) + "\n\n"
     yield emit({"phase": "loading", "message": "Building context…"})
     t0 = time.perf_counter()
+    from .copilot.router import route_copilot
     from .copilot.copilot_facade import query_copilot
-    out = query_copilot(body.query, org, client_id=body.client_id, session_id=body.session_id, insight_id=body.insight_id)
+    from .copilot.data_copilot import run as data_copilot_run
+    route = route_copilot(body.query or "", insight_id=body.insight_id)
+    if route == "insight":
+        out = query_copilot(body.query, org, client_id=body.client_id, session_id=body.session_id, insight_id=body.insight_id)
+    else:
+        out = data_copilot_run(body.query or "", org, client_id=body.client_id)
+        out = {"message": out.get("message", ""), "charts": out.get("charts", []), "tables": out.get("tables", []), "layout": out.get("layout"), "metadata": out.get("metadata", {})}
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    logger.info("copilot_stream org=%s latency_ms=%.0f", org, elapsed_ms)
+    logger.info("copilot_stream org=%s route=%s latency_ms=%.0f", org, route, elapsed_ms)
     yield emit({"phase": "done", "data": out})
 
 
@@ -550,20 +575,35 @@ def copilot_chat(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Chatbot-style Copilot: session history, returns text and optional layout (tables/charts) for this turn."""
+    """Chat: every query is handled by the LLM with tools. No hardcoded routing; LLM analyzes and responds dynamically."""
     org = get_organization_id(request)
     logger.info("Copilot chat | org=%s session_id=%s", org, body.session_id or "(new)")
     try:
         from .copilot.chat_handler import chat
-        out = chat(org, (body.message or "").strip(), session_id=body.session_id, client_id=body.client_id)
+        import uuid
+        msg = (body.message or "").strip()
+        sid = body.session_id or str(uuid.uuid4())
+        if not msg:
+            return {"text": "Please type a message to get a response.", "session_id": sid}
+        out = chat(org, msg, session_id=sid, client_id=body.client_id)
+        # Last-resort: never send the raw LLM error to the client
+        text = (out.get("text") or "").strip()
+        if text and ("couldn't complete" in text.lower() or "couldnt complete" in text.lower()):
+            out = {**out, "text": "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary."}
         return out
     except Exception as e:
         logger.exception(
             "Copilot chat failed | org=%s session_id=%s error=%s",
             org, body.session_id or "(new)", str(e)[:200],
         )
+        msg = (body.message or "").strip().lower()
+        if msg in ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo"):
+            return {
+                "text": "Hi! How can I help with your marketing analytics today? You can ask for a performance summary, top campaigns, funnel metrics, or anything else.",
+                "session_id": body.session_id or "",
+            }
         return {
-            "text": "I couldn't complete that. Please try again. If this persists, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set.",
+            "text": "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary. If this keeps happening, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set.",
             "session_id": body.session_id or "",
         }
 

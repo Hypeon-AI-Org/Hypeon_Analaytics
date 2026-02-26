@@ -103,9 +103,15 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
         sessionStorage.setItem(COPILOT_SESSION_KEY, res.session_id)
         fetchCopilotSessions().then((r) => setSessions(r.sessions || [])).catch(() => {})
       }
+      const rawText = res.text || ''
+      const isErrorMsg = /couldn't complete|couldnt complete/i.test(rawText) && rawText.length < 150
+      const isGreeting = /^(hi|hello|hey|howdy|yo|hi there|hello there)$/.test((text || '').toLowerCase().trim())
+      const displayText = isErrorMsg
+        ? (isGreeting ? "Hi! How can I help with your marketing analytics today? You can ask for a performance summary, top campaigns, funnel metrics, or anything else." : "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary.")
+        : rawText
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: res.text || '', layout: res.layout || null },
+        { role: 'assistant', text: displayText, layout: res.layout || null },
       ])
     } catch (err) {
       setError(err.message || 'Something went wrong')

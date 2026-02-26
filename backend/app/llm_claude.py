@@ -34,8 +34,8 @@ def _is_retryable_error(exc: BaseException) -> bool:
 # Optional: CLAUDE_MODEL (override primary; if unset, use DEFAULT_CLAUDE_MODEL), COPILOT_MAX_OUTPUT_TOKENS (default 2048)
 # CLAUDE_MODEL_FALLBACKS: comma-separated model ids to try after primary. If unset, uses CHEAP_FIRST order.
 
-# Best-value default: Sonnet 3.5 (good quality, lower cost than Opus). Used when CLAUDE_MODEL is not set in env.
-DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+# Cheap-and-best default: Haiku 3.5 (fast, low cost, good quality). Override with CLAUDE_MODEL in env if needed.
+DEFAULT_CLAUDE_MODEL = "claude-3-5-haiku-20241022"
 
 # Fallback order: cheaper models first (Haiku, then Sonnet, then Opus), then Gemini if all Claude models fail.
 CLAUDE_MODELS_CHEAP_FIRST = [
@@ -121,7 +121,7 @@ def _claude_error_message(err_str: str) -> str:
     # Only show auth message for real auth errors (401, invalid api key, unauthorized)
     if "401" in err_str or "unauthorized" in err_lower or "invalid api key" in err_lower or "invalid_api_key" in err_lower:
         return "There was an authentication issue. Please check that ANTHROPIC_API_KEY is set correctly."
-    return "I couldn't complete that. Please try again."
+    return "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary."
 
 
 def _fallback_json() -> str:
@@ -223,9 +223,9 @@ def chat_completion(messages: list[dict], *, system: str | None = None) -> str:
             exc_info=True,
         )
         msg = _claude_error_message(err_str)
-        if msg == "I couldn't complete that. Please try again.":
+        if "having trouble" in msg:
             logger.info(
-                "Copilot generic fallback (user sees 'Please try again'). Actual error: %s",
+                "Copilot generic fallback (user sees friendly message). Actual error: %s",
                 err_str[:500],
             )
         return msg
