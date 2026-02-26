@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { User, Sparkles } from 'lucide-react'
 import Layout from './Layout'
-import DashboardHome from './pages/DashboardHome'
+import DashboardOverview from './pages/DashboardOverview'
 import CampaignPage from './pages/CampaignPage'
 import FunnelPage from './pages/FunnelPage'
 import ActionCenterPage from './pages/ActionCenterPage'
@@ -23,38 +24,80 @@ const PAGE_TITLES = {
   '/': 'Dashboard',
 }
 
-function AppHeader({ onOpenCopilot }) {
+function AnalyticsCopilotSwitch() {
   const location = useLocation()
-  const path = location.pathname || '/dashboard'
-  const title = PAGE_TITLES[path] || PAGE_TITLES['/dashboard']
+  const navigate = useNavigate()
+  const isCopilot = location.pathname === '/copilot'
 
   return (
-    <header className="flex-shrink-0 border-b border-pink-100/60 bg-white/70 backdrop-blur-md px-6 py-4 flex items-center justify-between">
-      <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+    <div
+      role="tablist"
+      aria-label="Analytics or Copilot view"
+      className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5"
+    >
       <button
         type="button"
-        onClick={() => onOpenCopilot('What should I do today?')}
-        className="flex items-center gap-2 rounded-xl border border-brand-200 bg-white/90 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors"
+        role="tab"
+        aria-selected={!isCopilot}
+        onClick={() => navigate('/dashboard')}
+        className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+          !isCopilot
+            ? 'bg-white text-slate-800 shadow-sm border border-slate-200/80'
+            : 'text-slate-600 hover:text-slate-800'
+        }`}
       >
-        <span aria-hidden>◎</span>
-        Open Copilot
+        Analytics
       </button>
+        <button
+        type="button"
+        role="tab"
+        aria-selected={isCopilot}
+        onClick={() => navigate('/copilot')}
+        className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+          isCopilot
+            ? 'bg-white text-slate-800 shadow-sm border border-slate-200/80'
+            : 'text-slate-600 hover:text-slate-800'
+        }`}
+      >
+        <Sparkles size={14} strokeWidth={2} aria-hidden />
+        Copilot
+      </button>
+    </div>
+  )
+}
+
+function PageHeader() {
+  const location = useLocation()
+  const path = location.pathname || '/dashboard'
+  const title = path === '/dashboard' ? 'Dashboard Overview' : (PAGE_TITLES[path] || PAGE_TITLES['/dashboard'])
+
+  return (
+    <header className="flex-shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-bold text-slate-800">{title}</h2>
+      </div>
+      <div className="flex items-center gap-3">
+        <AnalyticsCopilotSwitch />
+        <button type="button" aria-label="Profile" className="p-1.5 rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors">
+          <User size={20} strokeWidth={2} />
+        </button>
+      </div>
     </header>
   )
 }
 
-function MainContent({ onOpenCopilot, openCopilotForInsight }) {
+function MainContent({ openCopilotForInsight }) {
   const location = useLocation()
   const path = location.pathname || '/dashboard'
   const isCopilot = path === '/copilot'
 
   return (
     <>
-      {!isCopilot && <AppHeader onOpenCopilot={onOpenCopilot} />}
-      <div className={isCopilot ? 'flex-1 flex flex-col min-h-0' : 'flex-1 overflow-auto px-6 py-6'}>
+      {!isCopilot && <PageHeader />}
+      <div className={`flex-1 flex flex-col min-h-0 ${isCopilot ? 'overflow-hidden' : 'overflow-auto'}`}>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardHome />} />
+          <Route path="/dashboard" element={<DashboardOverview />} />
           <Route path="/campaigns" element={<CampaignPage />} />
           <Route path="/google-ads" element={<GoogleAdsPage />} />
           <Route path="/google-analytics" element={<GoogleAnalyticsPage />} />
@@ -87,13 +130,8 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Layout
-        copilotOpen={copilotOpen}
-        onOpenCopilot={openCopilot}
-        onCloseCopilot={() => setCopilotOpen(false)}
-        explainInsightId={explainInsightId}
-      >
-        <MainContent onOpenCopilot={openCopilot} openCopilotForInsight={openCopilotForInsight} />
+      <Layout>
+        <MainContent openCopilotForInsight={openCopilotForInsight} />
       </Layout>
       <CopilotPanel
         open={copilotOpen}

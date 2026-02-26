@@ -34,7 +34,7 @@ export default function DateRangePicker({ onChange, initialDays = 30 }) {
           onClick={() => selectPreset(p.days)}
           className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
             activePreset === p.days && !showCustom
-              ? 'bg-brand-600 text-white'
+              ? 'bg-blue-600 text-white shadow-sm'
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
@@ -46,7 +46,7 @@ export default function DateRangePicker({ onChange, initialDays = 30 }) {
         onClick={() => setShowCustom(!showCustom)}
         className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
           showCustom
-            ? 'bg-brand-600 text-white'
+            ? 'bg-blue-600 text-white shadow-sm'
             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
         }`}
       >
@@ -58,20 +58,20 @@ export default function DateRangePicker({ onChange, initialDays = 30 }) {
             type="date"
             value={customStart}
             onChange={(e) => setCustomStart(e.target.value)}
-            className="rounded-xl border border-pink-200/80 px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500"
           />
           <span className="text-slate-400 text-sm">to</span>
           <input
             type="date"
             value={customEnd}
             onChange={(e) => setCustomEnd(e.target.value)}
-            className="rounded-xl border border-pink-200/80 px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500"
           />
           <button
             type="button"
             onClick={applyCustom}
             disabled={!customStart || !customEnd}
-            className="px-3 py-1.5 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-3 py-1.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Apply
           </button>

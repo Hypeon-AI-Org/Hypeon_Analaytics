@@ -102,13 +102,13 @@ function TableWidget({ widget }) {
   return (
     <div className="glass-card overflow-hidden md:col-span-2 lg:col-span-3">
       {title && (
-        <div className="px-5 py-3 border-b border-pink-100/60 font-semibold text-slate-700 text-sm uppercase tracking-wider">
+        <div className="px-5 py-3 border-b border-slate-200 font-semibold text-slate-700 text-sm uppercase tracking-wider">
           {title}
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-pink-100/60">
-          <thead className="bg-pink-50/50">
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50">
             <tr>
               {columns.map((col) => (
                 <th
@@ -120,9 +120,9 @@ function TableWidget({ widget }) {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-pink-100/40">
+          <tbody className="divide-y divide-slate-200">
             {rows.map((row, ri) => (
-              <tr key={ri} className="hover:bg-pink-50/30 transition-colors">
+              <tr key={ri} className="hover:bg-slate-50 transition-colors">
                 {columns.map((col) => (
                   <td key={col.key} className="px-5 py-3 text-sm text-slate-700">
                     {formatValue(row[col.key])}
@@ -154,9 +154,9 @@ function FunnelWidget({ widget }) {
                 {stage.dropPct != null ? ` (${Number(stage.dropPct).toFixed(1)}% drop)` : ''}
               </span>
             </div>
-            <div className="h-6 bg-pink-100/40 rounded-lg overflow-hidden">
+            <div className="h-6 bg-slate-100 rounded-lg overflow-hidden">
               <div
-                className="h-full bg-brand-500 rounded-lg transition-all duration-300"
+                className="h-full bg-blue-600 rounded-lg transition-all duration-300"
                 style={{ width: `${(Number(stage.value) / maxVal) * 100}%` }}
               />
             </div>

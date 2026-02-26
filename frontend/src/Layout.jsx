@@ -1,107 +1,105 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { fetchCopilotSessions } from './api'
+import {
+  LayoutDashboard,
+  Megaphone,
+  Target,
+  BarChart3,
+  Filter,
+  Zap,
+  Lightbulb,
+} from 'lucide-react'
 
-const NAV = [
-  { id: 'dashboard', path: '/dashboard', label: 'Dashboard', symbol: '≡' },
-  { id: 'campaigns', path: '/campaigns', label: 'Campaigns', symbol: '▣' },
-  { id: 'google-ads', path: '/google-ads', label: 'Google Ads', symbol: '◉' },
-  { id: 'google-analytics', path: '/google-analytics', label: 'Google Analytics', symbol: '◐' },
-  { id: 'funnel', path: '/funnel', label: 'Funnel', symbol: '▽' },
-  { id: 'actions', path: '/actions', label: 'Actions', symbol: '◇' },
-  { id: 'insights', path: '/insights', label: 'Insights', symbol: '◆' },
+const MAIN_NAV = [
+  { id: 'dashboard', path: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+  { id: 'campaigns', path: '/campaigns', label: 'Campaigns', Icon: Megaphone },
 ]
 
-function formatSessionDate(ts) {
-  if (ts == null) return ''
-  const d = new Date(ts * 1000)
-  const now = new Date()
-  const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24))
-  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays}d ago`
-  return d.toLocaleDateString()
+const SOURCES_NAV = [
+  { id: 'google-ads', path: '/google-ads', label: 'Google Ads', Icon: Target },
+  { id: 'google-analytics', path: '/google-analytics', label: 'Google Analytics', Icon: BarChart3 },
+  { id: 'funnel', path: '/funnel', label: 'Funnel', Icon: Filter },
+]
+
+const SYSTEM_NAV = [
+  { id: 'actions', path: '/actions', label: 'Actions', Icon: Zap },
+  { id: 'insights', path: '/insights', label: 'Insights', Icon: Lightbulb },
+]
+
+function NavSection({ items, path, navigate }) {
+  return (
+    <>
+      {items.map((item) => {
+        const active = path.startsWith(item.path)
+        const Icon = item.Icon
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => navigate(item.path)}
+            aria-current={active ? 'page' : undefined}
+            className={`w-full flex items-center gap-3 rounded-none pl-3 pr-3 py-2.5 text-sm font-medium transition-colors border-l-2 ${
+              active
+                ? 'border-accent bg-white/5 text-white'
+                : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200'
+            }`}
+          >
+            <Icon
+              className={`flex-shrink-0 ${active ? 'text-accent' : 'text-slate-400'}`}
+              size={20}
+              strokeWidth={2}
+              aria-hidden
+            />
+            {item.label}
+          </button>
+        )
+      })}
+    </>
+  )
 }
 
-export default function Layout({ copilotOpen, onOpenCopilot, onCloseCopilot, explainInsightId, children }) {
+export default function Layout({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
   const path = location.pathname || '/dashboard'
-  const isCopilotPage = path === '/copilot'
-  const [sessions, setSessions] = useState([])
 
-  useEffect(() => {
-    fetchCopilotSessions()
-      .then((r) => setSessions(r.sessions || []))
-      .catch(() => setSessions([]))
-  }, [path])
-
-  const recentSessions = sessions.slice(0, 8)
+  const showAnalyticsSidebar = path !== '/copilot'
 
   return (
-    <div className="flex min-h-screen bg-gradient-app">
-      <aside className="w-60 flex-shrink-0 bg-gradient-sidebar text-white flex flex-col shadow-glass border-r border-white/10">
-        <div className="p-4 border-b border-white/10">
-          <h1 className="text-lg font-semibold tracking-tight text-white">HypeOn</h1>
-          <p className="text-xs text-pink-200 mt-0.5">Analytics</p>
-        </div>
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto" aria-label="Main">
-          {NAV.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => navigate(item.path)}
-              aria-current={path.startsWith(item.path) ? 'page' : undefined}
-              className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                path.startsWith(item.path)
-                  ? 'bg-white/20 text-white'
-                  : 'text-pink-100 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-base opacity-90" aria-hidden>{item.symbol}</span>
-              {item.label}
-            </button>
-          ))}
-
-          <div className="pt-3 mt-3 border-t border-white/10">
-            <div className="flex items-center gap-2 px-3 py-1.5">
-              <span className="text-base opacity-90" aria-hidden>◎</span>
-              <span className="text-sm font-semibold text-white">Copilot</span>
+    <div className="flex h-screen overflow-hidden bg-white">
+      {showAnalyticsSidebar && (
+        <aside className="w-60 flex-shrink-0 flex flex-col h-full bg-gradient-to-b from-slate-900 to-slate-800 text-white shadow-glass border-r border-white/10 overflow-hidden">
+          <div className="p-4 border-b border-white/10 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <div>
+                <h1 className="text-lg font-semibold tracking-tight">
+                  <span className="text-white">HypeOn</span>{' '}
+                  <span className="text-accent">Analytics</span>
+                </h1>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/copilot')}
-              aria-current={isCopilotPage ? 'page' : undefined}
-              className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                isCopilotPage ? 'bg-white/20 text-white' : 'text-pink-100 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-base" aria-hidden>+</span>
-              New chat
-            </button>
-            {recentSessions.length > 0 && (
-              <ul className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
-                {recentSessions.map((s) => (
-                  <li key={s.session_id}>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/copilot', { state: { sessionId: s.session_id } })}
-                      className="w-full text-left px-3 py-2 rounded-lg text-xs text-pink-100 hover:bg-white/10 hover:text-white truncate block"
-                    >
-                      <span className="block truncate">{s.title || 'New chat'}</span>
-                      <span className="text-pink-200/80">{formatSessionDate(s.updated_at)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
-        </nav>
-        <div className="p-3 border-t border-white/10 text-xs text-pink-200/80">
-          Enterprise
-        </div>
-      </aside>
-      <main className="flex-1 flex flex-col min-w-0">
+          <nav className="flex-1 min-h-0 py-2 space-y-0.5 overflow-y-auto scrollbar-sidebar" aria-label="Main">
+            <NavSection items={MAIN_NAV} path={path} navigate={navigate} />
+            <div className="pt-3 pb-1">
+              <p className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">Sources</p>
+              <div className="space-y-0.5 mt-1">
+                <NavSection items={SOURCES_NAV} path={path} navigate={navigate} />
+              </div>
+            </div>
+            <div className="pt-2 pb-1">
+              <p className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">System</p>
+              <div className="space-y-0.5 mt-1">
+                <NavSection items={SYSTEM_NAV} path={path} navigate={navigate} />
+              </div>
+            </div>
+          </nav>
+          <div className="p-3 border-t border-white/10 text-xs text-slate-500 flex-shrink-0">
+            Enterprise
+          </div>
+        </aside>
+      )}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {children || <Outlet />}
       </main>
     </div>

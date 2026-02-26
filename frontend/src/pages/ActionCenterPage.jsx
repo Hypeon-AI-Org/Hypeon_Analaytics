@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchActions, applyRecommendation } from '../api'
 import ErrorBanner from '../components/ErrorBanner'
+import PageReportHeader from '../components/PageReportHeader'
 
 const ACTION_LABEL = {
   increase_budget: 'Scale Campaign',
@@ -48,16 +49,21 @@ export default function ActionCenterPage({ onExplain }) {
   }
 
   if (error) {
-    return <ErrorBanner message={error} onRetry={load} />
+    return (
+      <div className="flex-1 overflow-auto px-6 py-6">
+        <ErrorBanner message={error} onRetry={load} />
+      </div>
+    )
   }
 
   const items = data.items || []
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+      <PageReportHeader days={30} onExport={() => {}} />
       <p className="text-sm text-slate-600">Top actions from insights. Approve applies the recommendation; Ignore dismisses.</p>
       {loading && items.length === 0 ? (
-        <div className="animate-pulse rounded-xl bg-pink-100/50 h-48" />
+        <div className="animate-pulse rounded-xl bg-slate-100 h-48" />
       ) : items.length === 0 ? (
         <div className="glass-card p-8 text-center">
           <p className="text-slate-600 font-medium">No recommended actions right now</p>
@@ -99,7 +105,7 @@ export default function ActionCenterPage({ onExplain }) {
                   type="button"
                   disabled={applying === action.insight_id}
                   onClick={() => handleIgnore(action.insight_id)}
-                  className="px-3 py-2 text-sm font-medium rounded-xl border border-pink-200 text-slate-700 hover:bg-pink-50 disabled:opacity-50 transition-colors"
+                  className="px-3 py-2 text-sm font-medium rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
                 >
                   Ignore
                 </button>

@@ -103,15 +103,9 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
         sessionStorage.setItem(COPILOT_SESSION_KEY, res.session_id)
         fetchCopilotSessions().then((r) => setSessions(r.sessions || [])).catch(() => {})
       }
-      const rawText = res.text || ''
-      const isErrorMsg = /couldn't complete|couldnt complete/i.test(rawText) && rawText.length < 150
-      const isGreeting = /^(hi|hello|hey|howdy|yo|hi there|hello there)$/.test((text || '').toLowerCase().trim())
-      const displayText = isErrorMsg
-        ? (isGreeting ? "Hi! How can I help with your marketing analytics today? You can ask for a performance summary, top campaigns, funnel metrics, or anything else." : "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary.")
-        : rawText
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: displayText, layout: res.layout || null },
+        { role: 'assistant', text: res.text || '', layout: res.layout || null },
       ])
     } catch (err) {
       setError(err.message || 'Something went wrong')
@@ -136,8 +130,8 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
   if (!open) return null
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-lg flex flex-col z-50 bg-white/90 backdrop-blur-xl border-l border-pink-100/60 shadow-glass">
-      <div className="flex items-center justify-between p-4 border-b border-pink-100/60 flex-shrink-0">
+    <div className="fixed inset-y-0 right-0 w-full max-w-lg flex flex-col z-50 bg-white/90 backdrop-blur-xl border-l border-slate-200 shadow-glass">
+      <div className="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-brand-600 font-semibold" aria-hidden>◎</span>
           <h2 className="text-base font-semibold text-slate-800">Copilot</h2>
@@ -173,7 +167,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
       </div>
 
       {historyOpen && (
-        <div className="flex-shrink-0 border-b border-pink-100/60 max-h-44 overflow-auto bg-pink-50/30">
+        <div className="flex-shrink-0 border-b border-slate-200 max-h-44 overflow-auto bg-slate-50">
           <p className="text-xs font-semibold text-slate-500 px-4 pt-2 pb-1 uppercase tracking-wider">Previous chats</p>
           <ul className="pb-2">
             {sessions.length === 0 ? (
@@ -212,7 +206,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
               className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${
                 msg.role === 'user'
                   ? 'bg-brand-600 text-white'
-                  : 'glass-card border border-pink-100/60'
+                  : 'glass-card border border-slate-200'
               }`}
             >
               {msg.error ? (
@@ -227,7 +221,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
                     </div>
                   ) : null}
                   {msg.layout?.widgets?.length > 0 && (
-                    <div className="mt-3 rounded-xl border border-pink-100/60 bg-white/90 p-2">
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-white/90 p-2">
                       <DashboardRendererErrorBoundary>
                         <DynamicDashboardRenderer layout={msg.layout} />
                       </DashboardRendererErrorBoundary>
@@ -270,7 +264,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
           </button>
         </div>
       )}
-      <div className="p-4 border-t border-pink-100/60 flex-shrink-0 bg-white/80">
+      <div className="p-4 border-t border-slate-200 flex-shrink-0 bg-white/80">
         <div className="flex gap-2">
           <input
             ref={inputRef}
@@ -279,7 +273,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder="Message Copilot…"
-            className="flex-1 rounded-xl border border-pink-200/80 px-3 py-2.5 text-sm placeholder-slate-400 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 bg-white/90"
+            className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm placeholder-slate-400 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 bg-white/90"
             disabled={loading}
             aria-label="Message Copilot"
           />

@@ -6,8 +6,9 @@ import {
 import { fetchGoogleAdsAnalysis } from '../api'
 import DateRangePicker from '../components/DateRangePicker'
 import ErrorBanner from '../components/ErrorBanner'
+import PageReportHeader from '../components/PageReportHeader'
 
-const COLORS = ['#db2777', '#ec4899', '#be185d', '#9d174d', '#831843', '#f472b6', '#f9a8d4']
+const CHART_COLORS = ['#2563eb', '#059669', '#0ea5e9', '#8b5cf6', '#d97706', '#dc2626', '#0891b2', '#7c3aed']
 
 function fmt(v) {
   if (v == null) return '—'
@@ -68,7 +69,7 @@ export default function GoogleAdsPage() {
 
   if (loading && !data) {
     return (
-      <div className="space-y-6">
+      <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
         <Skeleton className="h-10 w-80" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => <Skeleton key={i} className="h-24" />)}
@@ -81,7 +82,7 @@ export default function GoogleAdsPage() {
 
   if (error) {
     return (
-      <div className="space-y-4">
+      <div className="flex-1 overflow-auto px-6 py-6 space-y-4">
         <DateRangePicker onChange={onDateChange} initialDays={params.days} />
         <ErrorBanner message={error} onRetry={load} />
       </div>
@@ -111,23 +112,30 @@ export default function GoogleAdsPage() {
   const totalDeviceSpend = devices.reduce((s, d) => s + (d.spend || 0), 0)
 
   return (
-    <div className="space-y-8">
-      {/* Date range */}
-      <DateRangePicker onChange={onDateChange} initialDays={30} />
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-8">
+      <PageReportHeader days={params.days || 30} onExport={() => {}} />
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm text-slate-600">Date range</span>
+        <DateRangePicker onChange={onDateChange} initialDays={30} />
+      </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        {kpis.map((k) => (
-          <div key={k.label} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{k.label}</p>
-            <p className="mt-1 text-xl font-semibold text-slate-800">{k.value}</p>
-          </div>
-        ))}
+      <div>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Key metrics</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
+          {kpis.map((k) => (
+            <div key={k.label} className="glass-card p-4 rounded-xl">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{k.label}</p>
+              <p className="mt-1.5 text-lg font-bold text-slate-800 tabular-nums">{k.value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Daily Trends */}
-      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-700 mb-4">Daily Trends</h3>
+      <div className="glass-card p-6 rounded-xl">
+        <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-1">Daily Trends</h3>
+        <p className="text-xs text-slate-500 mb-4">Spend, revenue and clicks over time</p>
         {ts.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={ts}>
@@ -137,9 +145,9 @@ export default function GoogleAdsPage() {
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
               <Tooltip />
               <Legend />
-              <Area yAxisId="left" type="monotone" dataKey="spend" stroke="#6366f1" fill="#6366f1" fillOpacity={0.1} strokeWidth={2} name="Spend" />
-              <Area yAxisId="left" type="monotone" dataKey="revenue" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={2} name="Revenue" />
-              <Line yAxisId="right" type="monotone" dataKey="clicks" stroke="#f59e0b" strokeWidth={2} dot={false} name="Clicks" />
+              <Area yAxisId="left" type="monotone" dataKey="spend" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.2} strokeWidth={2} name="Spend" />
+              <Area yAxisId="left" type="monotone" dataKey="revenue" stroke={CHART_COLORS[1]} fill={CHART_COLORS[1]} fillOpacity={0.2} strokeWidth={2} name="Revenue" />
+              <Line yAxisId="right" type="monotone" dataKey="clicks" stroke={CHART_COLORS[2]} strokeWidth={2} dot={false} name="Clicks" />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
@@ -148,9 +156,10 @@ export default function GoogleAdsPage() {
       </div>
 
       {/* Campaign Performance Table */}
-      <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-200">
-          <h3 className="text-sm font-semibold text-slate-700">Campaign Performance</h3>
+      <div className="glass-card overflow-hidden rounded-xl">
+        <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/50">
+          <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">Campaign Performance</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Spend, revenue and conversions by campaign</p>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200">
@@ -192,8 +201,9 @@ export default function GoogleAdsPage() {
 
       {/* Device Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Spend & Conversions by Device</h3>
+        <div className="glass-card p-6 rounded-xl">
+          <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-1">Spend & Conversions by Device</h3>
+          <p className="text-xs text-slate-500 mb-4">Breakdown by device type</p>
           {devices.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={devices}>
@@ -202,16 +212,17 @@ export default function GoogleAdsPage() {
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="spend" fill="#6366f1" name="Spend" />
-                <Bar dataKey="conversions" fill="#10b981" name="Conversions" />
+                <Bar dataKey="spend" fill={CHART_COLORS[0]} name="Spend" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="conversions" fill={CHART_COLORS[1]} name="Conversions" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
             <p className="text-slate-400 text-sm">No device data.</p>
           )}
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Spend Share by Device</h3>
+        <div className="glass-card p-6 rounded-xl">
+          <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider mb-1">Spend Share by Device</h3>
+          <p className="text-xs text-slate-500 mb-4">Percentage of total spend</p>
           {devices.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
@@ -224,7 +235,7 @@ export default function GoogleAdsPage() {
                   outerRadius={90}
                   label={({ device, spend }) => `${device}: ${totalDeviceSpend ? ((spend / totalDeviceSpend) * 100).toFixed(0) + '%' : ''}`}
                 >
-                  {devices.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {devices.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip />
                 <Legend />
@@ -237,9 +248,10 @@ export default function GoogleAdsPage() {
       </div>
 
       {/* Ad Group Table */}
-      <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-200">
-          <h3 className="text-sm font-semibold text-slate-700">Top Ad Groups</h3>
+      <div className="glass-card overflow-hidden rounded-xl">
+        <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/50">
+          <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">Top Ad Groups</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Performance by ad group</p>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200">

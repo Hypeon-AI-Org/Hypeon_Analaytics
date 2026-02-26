@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { fetchFunnel } from '../api'
 import ErrorBanner from '../components/ErrorBanner'
+import PageReportHeader from '../components/PageReportHeader'
 
 export default function FunnelPage() {
   const [data, setData] = useState(null)
@@ -21,11 +22,20 @@ export default function FunnelPage() {
   }, [])
 
   if (loading && !data) {
-    return <div className="animate-pulse rounded-xl bg-pink-100/50 h-64" />
+    return (
+      <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+        <div className="animate-pulse rounded-xl bg-slate-100 h-10 w-80" />
+        <div className="animate-pulse rounded-xl bg-slate-100 h-64" />
+      </div>
+    )
   }
 
   if (error) {
-    return <ErrorBanner message={error} onRetry={load} />
+    return (
+      <div className="flex-1 overflow-auto px-6 py-6">
+        <ErrorBanner message={error} onRetry={load} />
+      </div>
+    )
   }
 
   const clicks = data?.clicks ?? 0
@@ -41,7 +51,8 @@ export default function FunnelPage() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+      <PageReportHeader days={30} onExport={() => {}} />
       <p className="text-sm text-slate-600">Funnel from cache (last 30d). Drop % between stages.</p>
       <div className="glass-card p-6 max-w-2xl">
         <div className="space-y-4">
@@ -51,12 +62,12 @@ export default function FunnelPage() {
                 <span className="font-medium text-slate-700">{stage.name}</span>
                 <span className="text-slate-500">
                   {stage.value}
-                  {stage.drop != null && <span className="text-brand-600 ml-1">({Number(stage.drop).toFixed(1)}% drop)</span>}
+                  {stage.drop != null && <span className="text-blue-600 ml-1">({Number(stage.drop).toFixed(1)}% drop)</span>}
                 </span>
               </div>
-              <div className="h-8 bg-pink-100/40 rounded-lg overflow-hidden">
+              <div className="h-8 bg-slate-100 rounded-lg overflow-hidden">
                 <div
-                  className="h-full bg-brand-500 rounded-lg transition-all duration-300"
+                  className="h-full bg-blue-600 rounded-lg transition-all duration-300"
                   style={{ width: `${(Number(stage.value) / maxVal) * 100}%` }}
                 />
               </div>
