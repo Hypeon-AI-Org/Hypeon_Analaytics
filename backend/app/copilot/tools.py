@@ -189,7 +189,7 @@ def execute_tool(
             start = today - timedelta(days=days)
             df = load_ads_staging(client_id=cid, start_date=start, end_date=today, organization_id=organization_id)
             if df is None or df.empty:
-                return json.dumps({"overview": {}, "by_campaign": [], "by_device": []})
+                return json.dumps({"overview": {}, "by_campaign": [], "by_device": [], "daily_timeseries": []})
             total_spend = _safe_float(df["spend"].sum())
             total_clicks = _safe_float(df["clicks"].sum())
             total_impressions = _safe_float(df["impressions"].sum())
@@ -228,9 +228,27 @@ def execute_tool(
                     "spend": round(_safe_float(r.get("spend")), 2),
                     "conversions": round(_safe_float(r.get("conversions")), 2),
                 })
-            return json.dumps({"overview": overview, "by_campaign": by_campaign[:15], "by_device": by_device})
+            # Daily timeseries for Copilot graphs (match Analysis API shape)
+            df["date"] = pd.to_datetime(df["date"])
+            daily = df.groupby("date").agg(
+                spend=("spend", "sum"),
+                revenue=("revenue", "sum"),
+            ).reset_index().sort_values("date")
+            daily_ts = []
+            for _, row in daily.iterrows():
+                daily_ts.append({
+                    "date": row["date"].strftime("%Y-%m-%d"),
+                    "spend": round(_safe_float(row["spend"]), 2),
+                    "revenue": round(_safe_float(row["revenue"]), 2),
+                })
+            return json.dumps({
+                "overview": overview,
+                "by_campaign": by_campaign[:15],
+                "by_device": by_device,
+                "daily_timeseries": daily_ts,
+            })
         except Exception as e:
-            return json.dumps({"error": str(e)[:200], "overview": {}, "by_campaign": [], "by_device": []})
+            return json.dumps({"error": str(e)[:200], "overview": {}, "by_campaign": [], "by_device": [], "daily_timeseries": []})
 
     if tool_name == "get_google_analytics_analysis":
         try:
@@ -241,7 +259,7 @@ def execute_tool(
             start = today - timedelta(days=days)
             df = load_ga4_staging(client_id=cid, start_date=start, end_date=today, organization_id=organization_id)
             if df is None or df.empty:
-                return json.dumps({"overview": {}, "by_device": []})
+                return json.dumps({"overview": {}, "by_device": [], "daily_timeseries": [], "conversion_funnel": []})
             total_sessions = _safe_float(df["sessions"].sum())
             total_conversions = _safe_float(df["conversions"].sum())
             total_revenue = _safe_float(df["revenue"].sum())
@@ -266,8 +284,35 @@ def execute_tool(
                     "conversions": round(_safe_float(r.get("conversions")), 2),
                     "revenue": round(_safe_float(r.get("revenue")), 2),
                 })
-            return json.dumps({"overview": overview, "by_device": by_device})
+            # Daily timeseries for Copilot graphs
+            import pandas as pd
+            df["date"] = pd.to_datetime(df["date"])
+            daily = df.groupby("date").agg(
+                sessions=("sessions", "sum"),
+                conversions=("conversions", "sum"),
+                revenue=("revenue", "sum"),
+            ).reset_index().sort_values("date")
+            daily_ts = []
+            for _, row in daily.iterrows():
+                daily_ts.append({
+                    "date": row["date"].strftime("%Y-%m-%d"),
+                    "sessions": int(_safe_float(row["sessions"])),
+                    "conversions": round(_safe_float(row["conversions"]), 2),
+                    "revenue": round(_safe_float(row["revenue"]), 2),
+                })
+            conv_rate = _safe_div(total_conversions, total_sessions)
+            conversion_funnel = [
+                {"stage": "Sessions", "value": int(total_sessions), "drop_pct": None},
+                {"stage": "Conversions", "value": round(total_conversions, 2), "drop_pct": round((1 - conv_rate) * 100, 1) if total_sessions else 0},
+                {"stage": "Revenue", "value": round(total_revenue, 2), "drop_pct": None},
+            ]
+            return json.dumps({
+                "overview": overview,
+                "by_device": by_device,
+                "daily_timeseries": daily_ts,
+                "conversion_funnel": conversion_funnel,
+            })
         except Exception as e:
-            return json.dumps({"error": str(e)[:200], "overview": {}, "by_device": []})
+            return json.dumps({"error": str(e)[:200], "overview": {}, "by_device": [], "daily_timeseries": [], "conversion_funnel": []})
 
     return json.dumps({"error": f"Unknown tool: {tool_name}"})

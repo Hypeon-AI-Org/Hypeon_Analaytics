@@ -11,7 +11,14 @@ import uuid
 from typing import Any, Optional
 
 from .query_contract import validate_layout
-from .layout_generator import _sanitize_widget, _validate_widget_type
+from .layout_generator import (
+    _sanitize_widget,
+    _validate_widget_type,
+    build_layout_from_context,
+    build_layout_from_tool_results,
+    is_layout_empty_or_all_zeros,
+)
+from .context_builder import build_context
 from .tools import COPILOT_TOOLS, execute_tool
 
 logger = logging.getLogger(__name__)
@@ -28,7 +35,8 @@ You have tools to fetch live data: get_business_overview, get_campaign_performan
 - Be clear and concise. Match response length to the query: short answer for narrow questions, fuller answer for broad requests.
 - When the user asks for an overview or performance summary, you may include a JSON layout at the end for the UI: ```json {{"layout": {{ "widgets": [ ... ] }} }} ```
 - Supported widgets: kpi (title, value, trend, subtitle), chart (chartType: line|bar|pie; title; data; xKey; yKey), table (title; columns with key/label; rows), funnel (title; stages with name, value, dropPct).
-- If tools return no data or empty results, say so and suggest what they can ask next. Do not make up numbers."""
+- If tools return no data or empty results, say so and suggest what they can ask next. Do not make up numbers.
+- Do not use emojis in your response (including in tables, status labels, or any layout JSON). Use plain text only; for campaign status use exactly: Scaling, Stable, or Wasting."""
 
 
 def _extract_layout_from_response(text: str) -> tuple[str, Optional[dict]]:
@@ -79,6 +87,45 @@ def _extract_layout_from_response(text: str) -> tuple[str, Optional[dict]]:
     else:
         layout = None
     return (text.strip(), layout)
+
+
+def _get_last_round_tool_results(messages: list[dict]) -> dict[str, Any]:
+    """Extract tool name -> parsed result (dict) from the last round of tool calls in the conversation."""
+    name_to_result: dict[str, Any] = {}
+    id_to_name: dict[str, str] = {}
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        tool_results = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"]
+        if not tool_results:
+            continue
+        if i > 0:
+            prev = messages[i - 1]
+            if prev.get("role") == "assistant":
+                prev_content = prev.get("content") or []
+                if isinstance(prev_content, list):
+                    for b in prev_content:
+                        if isinstance(b, dict) and b.get("type") == "tool_use":
+                            id_to_name[(b.get("id") or "").strip()] = (b.get("name") or "").strip()
+        for tr in tool_results:
+            tid = (tr.get("tool_use_id") or "").strip()
+            name = id_to_name.get(tid, "").strip()
+            if not name:
+                continue
+            raw = tr.get("content")
+            if isinstance(raw, str):
+                try:
+                    name_to_result[name] = json.loads(raw)
+                except json.JSONDecodeError:
+                    name_to_result[name] = {}
+            else:
+                name_to_result[name] = raw if isinstance(raw, dict) else {}
+        break
+    return name_to_result
 
 
 def chat(
@@ -148,6 +195,23 @@ def chat(
         lower = msg.strip().lower()
         greetings = ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo", "sup", "good morning", "good afternoon", "good evening")
         return lower in greetings or lower.rstrip("!?.") in greetings
+
+    def _is_what_to_do_query(msg: str) -> bool:
+        """True if the user is asking what to do / what they should do (do not show graph for this)."""
+        if not msg or len(msg) > 120:
+            return False
+        lower = msg.strip().lower().rstrip("?!.")
+        patterns = (
+            "what to do",
+            "what should i do",
+            "what should i do today",
+            "what can i do",
+            "what do i do",
+            "what would you recommend",
+            "any recommendations",
+            "recommend something",
+        )
+        return any(p in lower for p in patterns)
 
     def _sanitize_messages(msgs: list[dict]) -> list[dict]:
         """Ensure every message has content as string or list of dicts; avoid .get on non-dict."""
@@ -270,6 +334,35 @@ def chat(
                 )
         text_clean, layout = _extract_layout_from_response(reply_text)
         final_text = (text_clean or reply_text or "").strip()
+
+        # Fallback: when LLM didn't return a layout but we had tool calls, build a layout
+        # relevant to what the user asked (GA4 -> GA layout, Google Ads -> Ads layout, else overview).
+        # Do NOT show graph for "what to do" queries — text only.
+        if layout is None and not _is_what_to_do_query(message):
+            had_tool_calls = any(
+                isinstance(m.get("content"), list)
+                and any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in (m.get("content") or [])
+                )
+                for m in messages
+            )
+            if had_tool_calls:
+                try:
+                    tool_results = _get_last_round_tool_results(messages)
+                    fallback_layout = build_layout_from_tool_results(tool_results, organization_id, cid)
+                    if fallback_layout and fallback_layout.get("widgets") and not is_layout_empty_or_all_zeros(fallback_layout):
+                        layout = fallback_layout
+                        logger.info("Copilot: using query-relevant fallback layout from tool results")
+                    elif tool_results:
+                        # e.g. only get_decision_history was called; use generic overview from cache
+                        context = build_context(organization_id, client_id=cid)
+                        fallback_layout = build_layout_from_context(context, "build_dashboard")
+                        if fallback_layout.get("widgets") and not is_layout_empty_or_all_zeros(fallback_layout):
+                            layout = fallback_layout
+                            logger.info("Copilot: using fallback layout from context (LLM did not return layout)")
+                except Exception as layout_err:
+                    logger.warning("Copilot: fallback layout build failed: %s", layout_err)
 
         # Final guard: never send the raw LLM error to the client; always replace with friendly message
         # Check both normalized and raw to catch any unicode/quote variants
