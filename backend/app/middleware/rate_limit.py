@@ -43,7 +43,7 @@ def _is_over_limit(key: str) -> bool:
 
 
 class CopilotRateLimitMiddleware(BaseHTTPMiddleware):
-    """Limit POST /api/v1/copilot/query and /api/v1/copilot/stream to 20 req/min per user."""
+    """Limit POST /api/v1/copilot/chat to 20 req/min per user."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.scope.get("path") or ""

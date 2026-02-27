@@ -231,13 +231,6 @@ class CopilotQueryBody(BaseModel):
     insight_id: str
 
 
-class CopilotV1QueryBody(BaseModel):
-    query: str
-    client_id: Optional[int] = None
-    session_id: Optional[str] = None
-    insight_id: Optional[str] = None
-
-
 class CopilotChatBody(BaseModel):
     message: str = ""
     session_id: Optional[str] = None
@@ -494,81 +487,7 @@ def copilot_stream(
     )
 
 
-# ----- V1 Copilot (free-form query, structured context, optional layout) -----
-@app.post("/api/v1/copilot/query")
-def copilot_v1_query(
-    body: CopilotV1QueryBody,
-    request: Request,
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    """Free-form Copilot: if insight_id present use insight path; else data analysis path. Returns message, charts, tables, layout, metadata."""
-    org = get_organization_id(request)
-    t0 = time.perf_counter()
-    from .copilot.router import route_copilot
-    from .copilot.copilot_facade import query_copilot
-    from .copilot.data_copilot import run as data_copilot_run
-    route = route_copilot(body.query or "", insight_id=body.insight_id)
-    if route == "insight":
-        out = query_copilot(
-            body.query,
-            org,
-            client_id=body.client_id,
-            session_id=body.session_id,
-            insight_id=body.insight_id,
-        )
-    else:
-        out = data_copilot_run(
-            body.query or "",
-            org,
-            client_id=body.client_id,
-        )
-        # Mandatory response format: message, charts, tables, metadata (layout added for frontend)
-        out = {
-            "message": out.get("message", ""),
-            "charts": out.get("charts", []),
-            "tables": out.get("tables", []),
-            "layout": out.get("layout"),
-            "metadata": out.get("metadata", {}),
-        }
-    elapsed_ms = (time.perf_counter() - t0) * 1000
-    logger.info("copilot_query org=%s route=%s latency_ms=%.0f", org, route, elapsed_ms)
-    return out
-
-
-def _copilot_v1_stream_gen(body: CopilotV1QueryBody, org: str):
-    def emit(ev: dict) -> str:
-        return "data: " + json.dumps(ev) + "\n\n"
-    yield emit({"phase": "loading", "message": "Building context…"})
-    t0 = time.perf_counter()
-    from .copilot.router import route_copilot
-    from .copilot.copilot_facade import query_copilot
-    from .copilot.data_copilot import run as data_copilot_run
-    route = route_copilot(body.query or "", insight_id=body.insight_id)
-    if route == "insight":
-        out = query_copilot(body.query, org, client_id=body.client_id, session_id=body.session_id, insight_id=body.insight_id)
-    else:
-        out = data_copilot_run(body.query or "", org, client_id=body.client_id)
-        out = {"message": out.get("message", ""), "charts": out.get("charts", []), "tables": out.get("tables", []), "layout": out.get("layout"), "metadata": out.get("metadata", {})}
-    elapsed_ms = (time.perf_counter() - t0) * 1000
-    logger.info("copilot_stream org=%s route=%s latency_ms=%.0f", org, route, elapsed_ms)
-    yield emit({"phase": "done", "data": out})
-
-
-@app.post("/api/v1/copilot/stream")
-def copilot_v1_stream(
-    body: CopilotV1QueryBody,
-    request: Request,
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    """Stream V1 Copilot response (SSE): loading then done with full structured data."""
-    org = get_organization_id(request)
-    return StreamingResponse(
-        _copilot_v1_stream_gen(body, org),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
+# ----- V1 Copilot (chat only: LLM + run_sql) -----
 @app.post("/api/v1/copilot/chat")
 def copilot_chat(
     body: CopilotChatBody,

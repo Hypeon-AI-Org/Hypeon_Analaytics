@@ -32,8 +32,140 @@ def get_analytics_dataset() -> str:
     return os.environ.get("ANALYTICS_DATASET", "analytics")
 
 
+def get_ads_dataset() -> str:
+    """Dataset for Ads raw/staging (from .env ADS_DATASET, e.g. 146568). Used by Copilot run_sql."""
+    return os.environ.get("ADS_DATASET", "146568")
+
+
+def get_ga4_dataset() -> str:
+    """Dataset for GA4 raw/staging (from .env GA4_DATASET, e.g. analytics_444259275). Used by Copilot run_sql."""
+    return os.environ.get("GA4_DATASET", "analytics_444259275")
+
+
 def _project() -> str:
     return os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
+
+
+def _source_project() -> str:
+    """Project where GA4/Ads raw data lives (e.g. events_*). Used for item views count."""
+    return os.environ.get("BQ_SOURCE_PROJECT") or _project()
+
+
+# Copilot run_sql: allow any table in ADS_DATASET and GA4_DATASET only (raw datasets from .env)
+def _copilot_allowed_datasets() -> frozenset[str]:
+    """Return set of dataset IDs (lower) allowed for run_sql. Any table in these datasets is allowed."""
+    ads_ds = get_ads_dataset().strip().lower()
+    ga4_ds = get_ga4_dataset().strip().lower()
+    return frozenset({ads_ds, ga4_ds})
+
+
+def run_readonly_query(
+    sql: str,
+    client_id: int,
+    organization_id: str,
+    max_rows: int = 500,
+    timeout_sec: float = 15.0,
+) -> dict:
+    """
+    Run a read-only BigQuery query for Copilot. Validates SELECT only and allowed tables.
+    Returns {"rows": [...], "error": None} or {"rows": [], "error": "message"}.
+    """
+    import re
+    from google.cloud import bigquery
+
+    sql = (sql or "").strip()
+    if not sql:
+        return {"rows": [], "error": "Empty query."}
+
+    # Single statement only: no semicolon (except trailing)
+    sql_normalized = sql.rstrip(";").strip()
+    if ";" in sql_normalized:
+        return {"rows": [], "error": "Only a single SELECT statement is allowed."}
+
+    # Must be SELECT only (allow WITH ... SELECT)
+    upper = sql_normalized.upper()
+    if not upper.startswith("SELECT") and not upper.startswith("WITH"):
+        return {"rows": [], "error": "Only SELECT (or WITH ... SELECT) queries are allowed."}
+    for verb in ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE", "GRANT", "REVOKE"):
+        if verb in upper:
+            return {"rows": [], "error": f"Only read-only SELECT is allowed (no {verb})."}
+
+    project = _project().lower()
+    source_project = _source_project().lower()
+    allowed_datasets = _copilot_allowed_datasets()
+    # Match backtick-quoted identifiers: `project.dataset.table`
+    pattern = r"`([^`]+)`"
+    for match in re.finditer(pattern, sql):
+        ref = match.group(1).strip().lower()
+        parts = ref.split(".")
+        if len(parts) != 3:
+            continue
+        ref_project, ref_dataset, table_part = parts
+        if ref_dataset not in allowed_datasets:
+            return {"rows": [], "error": f"Dataset not allowed for Copilot: {ref_dataset}. Only ADS_DATASET and GA4_DATASET are allowed (see .env)."}
+        if ref_project not in (project, source_project):
+            return {"rows": [], "error": f"Only tables in project {_project()} or {_source_project()} are allowed."}
+
+    # Enforce LIMIT if not present (BigQuery allows no LIMIT but we want to cap rows)
+    if "LIMIT" not in upper:
+        sql_normalized = f"{sql_normalized} LIMIT {max_rows}"
+
+    client = get_client()
+    job_config = bigquery.QueryJobConfig(
+        maximum_bytes_billed=100 * 1024 * 1024,  # 100 MB cap
+    )
+    try:
+        query_job = client.query(sql_normalized, job_config=job_config)
+        # Wait with timeout; then fetch up to max_rows
+        iterator = query_job.result(max_results=max_rows, timeout=timeout_sec)
+        rows = []
+        for row in iterator:
+            rows.append(dict(row.items()))
+        return {"rows": rows, "error": None}
+    except Exception as e:
+        return {"rows": [], "error": str(e)[:300]}
+
+
+# GA4 events that represent a product/item view (for get_item_views_count)
+_VIEW_ITEM_EVENTS = ("view_item", "view_item_list")
+
+
+def get_item_views_count(prefix: str = "FT05B") -> dict:
+    """
+    Return views count for item_id starting with prefix from GA4 raw events_*.
+    Returns {"views_count": int, "item_id_prefix": str} or {"error": str}.
+    Uses BQ_SOURCE_PROJECT, GA4_DATASET, BQ_LOCATION from env.
+    """
+    from google.cloud import bigquery
+
+    prefix = (prefix or "FT05B").strip() or "FT05B"
+    project = _source_project()
+    dataset = get_ga4_dataset()
+    location = os.environ.get("BQ_LOCATION", "europe-north2")
+    table_ref = f"`{project}.{dataset}.events_*`"
+    query = f"""
+    SELECT COUNT(*) AS views_count
+    FROM {table_ref},
+    UNNEST(COALESCE(items, [])) AS it
+    WHERE event_date IS NOT NULL
+      AND event_name IN {_VIEW_ITEM_EVENTS}
+      AND STARTS_WITH(COALESCE(it.item_id, ''), @prefix)
+    """
+    # events_* scan can exceed 100 MB; allow 200 MB for this specific query
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("prefix", "STRING", prefix),
+        ],
+        maximum_bytes_billed=200 * 1024 * 1024,
+    )
+    try:
+        client = bigquery.Client(project=project, location=location)
+        job = client.query(query, job_config=job_config)
+        rows = list(job.result(timeout=30))
+        count = int(rows[0][0]) if rows else 0
+        return {"views_count": count, "item_id_prefix": prefix}
+    except Exception as e:
+        return {"error": str(e)[:300], "views_count": None, "item_id_prefix": prefix}
 
 
 def load_marketing_performance(
@@ -70,9 +202,9 @@ def load_ads_staging(
     end_date: date,
     organization_id: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Load raw Google Ads data from ads_daily_staging for a date range."""
+    """Load raw Google Ads data from ads_daily_staging (dataset from ADS_DATASET)."""
     client = get_client()
-    dataset = get_analytics_dataset()
+    dataset = get_ads_dataset()
     project = _project()
     query = f"""
     SELECT client_id, date, campaign_id, ad_group_id, device,
@@ -92,9 +224,9 @@ def load_ga4_staging(
     end_date: date,
     organization_id: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Load raw GA4 data from ga4_daily_staging for a date range."""
+    """Load raw GA4 data from ga4_daily_staging (dataset from GA4_DATASET)."""
     client = get_client()
-    dataset = get_analytics_dataset()
+    dataset = get_ga4_dataset()
     project = _project()
     query = f"""
     SELECT client_id, date, device,

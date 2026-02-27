@@ -19,7 +19,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
-import { fetchBusinessOverview, fetchCampaignPerformance, queryCopilot } from '../api'
+import { fetchBusinessOverview, fetchCampaignPerformance, copilotChat } from '../api'
 import DynamicDashboardRenderer from '../components/DynamicDashboardRenderer'
 import DashboardRendererErrorBoundary from '../components/DashboardRendererErrorBoundary'
 import ErrorBanner from '../components/ErrorBanner'
@@ -97,10 +97,9 @@ export default function DashboardHome() {
     setCopilotLayout(null)
     setCopilotError(null)
     setCopilotLoading(true)
-    queryCopilot({ query: 'How am I performing?' })
+    copilotChat({ message: 'How am I performing?' })
       .then((res) => {
-        setCopilotSummary(res.summary)
-        if (res.layout) setCopilotLayout(res.layout)
+        setCopilotSummary(res.text || '')
         setCopilotLoading(false)
       })
       .catch((err) => {

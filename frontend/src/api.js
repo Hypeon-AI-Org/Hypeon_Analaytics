@@ -62,57 +62,7 @@ export async function fetchGoogleAnalyticsAnalysis({ client_id, days, start_date
   return res.json()
 }
 
-// ----- V1 Copilot (free-form query, structured response + optional layout) -----
-export async function queryCopilot({ query, client_id, session_id, insight_id } = {}) {
-  const res = await fetch(`${API_BASE}/api/v1/copilot/query`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
-    body: JSON.stringify({ query: query || '', client_id, session_id, insight_id }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail?.message || err.message || res.statusText)
-  }
-  return res.json()
-}
-
-export function copilotStreamV1({ query, client_id, session_id, insight_id }, onEvent) {
-  const controller = new AbortController()
-  const promise = (async () => {
-    const res = await fetch(`${API_BASE}/api/v1/copilot/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
-      body: JSON.stringify({ query: query || '', client_id, session_id, insight_id }),
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(res.statusText)
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n\n')
-      buf = lines.pop() || ''
-      for (const block of lines) {
-        const m = block.match(/^data:\s*(.+)$/m)
-        if (m) {
-          try {
-            onEvent(JSON.parse(m[1]))
-          } catch (_) {}
-        }
-      }
-    }
-    if (buf) {
-      const m = buf.match(/^data:\s*(.+)$/m)
-      if (m) try { onEvent(JSON.parse(m[1])) } catch (_) {}
-    }
-  })()
-  return { promise, cancel: () => controller.abort() }
-}
-
-// ----- Chat-style Copilot (session history + tables/charts) -----
+// ----- Copilot chat (LLM + run_sql on ADS/GA4 datasets) -----
 export async function copilotChat({ message, session_id, client_id } = {}) {
   const res = await fetch(`${API_BASE}/api/v1/copilot/chat`, {
     method: 'POST',

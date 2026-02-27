@@ -84,25 +84,7 @@ def main():
     code, data = get("/decisions/history")
     ok("GET /decisions/history 200", code == 200)
 
-    # ---- Copilot V1 query (data analysis path) ----
-    print("\n--- Copilot V1 Query (data path) ---")
-    code, data = post("/api/v1/copilot/query", {"query": "Show last 30 days performance"})
-    ok("POST copilot/query data path 200", code == 200, str(code))
-    if code == 200 and isinstance(data, dict):
-        ok("Response has message", "message" in data or "summary" in data)
-        ok("Response has metadata or layout", "metadata" in data or "layout" in data or "summary" in data)
-    code, data = post("/api/v1/copilot/query", {"query": "Which channel performs best?", "client_id": 1})
-    ok("POST copilot/query channel 200", code == 200)
-    code, data = post("/api/v1/copilot/query", {"query": "Compare this week vs last week"})
-    ok("POST copilot/query comparison 200", code == 200)
-    code, data = post("/api/v1/copilot/query", {"query": "What should I do today?"})
-    ok("POST copilot/query what to do 200", code == 200)
-
-    # ---- Edge: empty query ----
-    code, data = post("/api/v1/copilot/query", {"query": ""})
-    ok("POST copilot/query empty query 200", code == 200)
-
-    # ---- Copilot chat ----
+    # ---- Copilot chat (LLM + run_sql) ----
     print("\n--- Copilot Chat ---")
     code, data = post("/api/v1/copilot/chat", {"message": "Show last 7 days performance"})
     ok("POST copilot/chat 200", code == 200)
@@ -123,9 +105,7 @@ def main():
     if code == 200 and isinstance(data, dict):
         ok("Empty message returns friendly text", "text" in data and len((data.get("text") or "")) > 0)
 
-    # ---- Insight Copilot (no insight_id -> data path; with fake insight_id -> 404 or error) ----
-    code, data = post("/api/v1/copilot/query", {"query": "Explain", "insight_id": None})
-    ok("POST copilot/query no insight_id uses data path", code == 200)
+    # ---- Insight Copilot (legacy /copilot/query by insight_id) ----
     code, data = post("/copilot/query", {"insight_id": "non-existent-insight-123"})
     ok("POST /copilot/query missing insight 404", code == 404)
 
@@ -141,30 +121,12 @@ def main():
     ok("GET /health no auth 200", r.status_code == 200)
 
     # ---- CORS / options (200/204 = CORS preflight ok; 405 = method not configured, still acceptable) ----
-    r = requests.options(f"{BASE}/api/v1/copilot/query", headers={"Origin": "http://localhost:5173"}, timeout=5)
-    ok("OPTIONS copilot/query allowed", r.status_code in (200, 204, 405))
+    r = requests.options(f"{BASE}/api/v1/copilot/chat", headers={"Origin": "http://localhost:5173"}, timeout=5)
+    ok("OPTIONS copilot/chat allowed", r.status_code in (200, 204, 405))
 
     # ---- Edge: invalid / missing body (422 validation or 200 with defaults) ----
-    code, _ = post("/api/v1/copilot/query", {})
-    ok("POST copilot/query no body 200 or 422", code in (200, 422))
     code, _ = post("/api/v1/copilot/chat", {})
     ok("POST copilot/chat no body 200 or 422", code in (200, 422))
-
-    # ---- Edge: stream (smoke: start and read first event) ----
-    try:
-        r = requests.post(
-            f"{BASE}/api/v1/copilot/stream",
-            headers=HEADERS,
-            json={"query": "Last 7 days", "client_id": 1},
-            stream=True,
-            timeout=15,
-        )
-        ok("POST copilot/stream 200", r.status_code == 200)
-        if r.status_code == 200:
-            first_line = next(iter(r.iter_lines()), b"")
-            ok("Stream yields SSE data", b"data:" in first_line or b"phase" in first_line or first_line.startswith(b"data:"))
-    except Exception as e:
-        ok("POST copilot/stream no crash", True, str(e)[:50])
 
     # ---- Simulated user behaviour: full chat flow ----
     print("\n--- Simulated user behaviour (chat flow) ---")
@@ -197,14 +159,12 @@ def main():
     ok("Chat long message 200 or 422", code in (200, 422, 429))
     code, _ = post("/api/v1/copilot/chat", {"message": "Revenue & spend <script>?", "client_id": 1})
     ok("Chat special chars 200", code in (200, 422, 429), f"code={code}")
-    code, _ = post("/api/v1/copilot/query", {"query": "Show last 7 days", "client_id": 1})
-    ok("Query with client_id=1 200 or 429", code in (200, 429))
-    code, _ = post("/api/v1/copilot/query", {"query": "Compare last week to this week"})
-    ok("Query comparison 200 or 429", code in (200, 429))
+    code, _ = post("/api/v1/copilot/chat", {"message": "Show last 7 days", "client_id": 1})
+    ok("Chat with client_id=1 200 or 429", code in (200, 429))
+    code, _ = post("/api/v1/copilot/chat", {"message": "Compare last week to this week"})
+    ok("Chat comparison 200 or 429", code in (200, 429))
     code, _ = get("/api/v1/copilot/chat/history", {"session_id": "nonexistent-session-12345"})
     ok("Chat history invalid session 200", code == 200)  # may return empty messages
-    code, _ = post("/api/v1/copilot/stream", {"query": "", "client_id": 1})
-    ok("Stream empty query 200 or 422", code in (200, 422, 429), f"code={code}")
 
     # ---- Simulation API (smoke) ----
     print("\n--- Simulation API ---")
