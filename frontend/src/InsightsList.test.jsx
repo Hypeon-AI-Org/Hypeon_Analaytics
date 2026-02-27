@@ -33,43 +33,8 @@ test('shows loading then list of insights', async () => {
     expect(screen.getByText(/Campaign c1 has spend but zero revenue/)).toBeInTheDocument()
   })
   expect(screen.getByText(/85% confidence/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Simulate/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Approve/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Reject/ })).toBeInTheDocument()
-})
-
-test('Simulate opens modal and shows projections when run', async () => {
-  fetch
-    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockInsights) })
-    .mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          expected_delta: 10,
-          confidence: 0.75,
-          low: { revenue_delta: -50 },
-          median: { revenue_delta: 10 },
-          high: { revenue_delta: 80 },
-        }),
-    })
-  render(<InsightsList />)
-  await waitFor(() => {
-    expect(screen.getByText(/Campaign c1 has spend/)).toBeInTheDocument()
-  })
-  await userEvent.click(screen.getByRole('button', { name: /Simulate/ }))
-  expect(screen.getByRole('dialog')).toBeInTheDocument()
-  expect(screen.getByLabelText(/From campaign/)).toBeInTheDocument()
-  const toInput = screen.getByLabelText(/To campaign/)
-  await userEvent.clear(toInput)
-  await userEvent.type(toInput, 'c2')
-  const amountInput = screen.getByLabelText(/Amount/)
-  await userEvent.clear(amountInput)
-  await userEvent.type(amountInput, '100')
-  await userEvent.click(screen.getByRole('button', { name: /Run simulation/ }))
-  await waitFor(() => {
-    expect(screen.getByText(/Expected delta/)).toBeInTheDocument()
-    expect(screen.getByText(/Median/)).toBeInTheDocument()
-  })
 })
 
 test('Details toggles provenance block', async () => {

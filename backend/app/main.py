@@ -1,7 +1,8 @@
 """
-FastAPI backend: enterprise multi-tenant, insights (paginated/top), review/apply, decision history, copilot.
+FastAPI backend: enterprise multi-tenant, insights (paginated/top), review/apply, copilot Q&A only.
 All queries scoped by organization_id; no cross-client leakage.
 Copilot uses Gemini when GEMINI_API_KEY or Vertex AI is configured.
+No decision engine; analytics + attribution + Copilot only.
 """
 from __future__ import annotations
 
@@ -237,14 +238,6 @@ class CopilotChatBody(BaseModel):
     client_id: Optional[int] = None
 
 
-class SimulateBudgetShiftBody(BaseModel):
-    client_id: int
-    date: str
-    from_campaign: str
-    to_campaign: str
-    amount: float = Field(..., gt=0)
-
-
 # ----- Helpers -----
 def _bq():
     from .clients.bigquery import get_client
@@ -281,13 +274,6 @@ def _top_insights_scoped(organization_id: str, client_id: Optional[int], top_n: 
     rows = list_insights(organization_id, client_id=client_id, status=None, limit=500, offset=0)
     ranked = top_per_client(rows, top_n=top_n)
     return ranked
-
-
-def _top_decisions_scoped(organization_id: str, client_id: Optional[int], top_n: int) -> list[dict]:
-    from .clients.bigquery import list_insights
-    from .top_decisions import top_decisions
-    rows = list_insights(organization_id, client_id=client_id, status=None, limit=200, offset=0)
-    return top_decisions(rows, top_n=top_n, status_filter="new")
 
 
 def _update_insight_status(insight_id: str, organization_id: str, status: str, user_id: Optional[str]) -> None:
@@ -365,56 +351,16 @@ def insight_apply(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst")),
 ):
-    """Mark insight as applied; write to decision_history (NEW -> APPLIED)."""
+    """Mark insight as applied (status only; no decision store)."""
     org = get_organization_id(request)
-    from .clients.bigquery import get_insight_by_id, insert_decision_history
+    from .clients.bigquery import get_insight_by_id
     insight = get_insight_by_id(insight_id, org)
     if not insight:
         api_error("NOT_FOUND", "Insight not found", 404)
-    client_id = int(insight.get("client_id") or 0)
-    insert_decision_history(
-        organization_id=org,
-        client_id=client_id,
-        insight_id=insight_id,
-        recommended_action=insight.get("recommendation") or "",
-        status="applied",
-        applied_by=body.applied_by,
-        workspace_id=get_workspace_id(request),
-    )
     _update_insight_status(insight_id, org, "applied", body.applied_by)
     from .audit_logger import log_decision_applied
     log_decision_applied(org, insight_id, body.applied_by)
     return {"ok": True, "insight_id": insight_id, "status": "applied"}
-
-
-@app.get("/decisions/top")
-def get_decisions_top(
-    request: Request,
-    client_id: Optional[int] = Query(None),
-    top_n: int = Query(None, ge=1, le=20),
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    """Top N actions today for executives (default 3). Ranked by impact × confidence × urgency × recency."""
-    org = get_organization_id(request)
-    n = top_n or get("top_decisions_n", 3)
-    items = _top_decisions_scoped(org, client_id, n)
-    return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
-
-
-@app.get("/decisions/history")
-def get_decisions_history(
-    request: Request,
-    client_id: Optional[int] = Query(None),
-    insight_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    """Decision lifecycle history scoped by organization."""
-    org = get_organization_id(request)
-    from .clients.bigquery import get_decision_history
-    items = get_decision_history(org, client_id=client_id, insight_id=insight_id, status=status, limit=limit)
-    return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
 
 
 def _copilot_stream_gen(insight_id: str, org: str):
@@ -423,7 +369,7 @@ def _copilot_stream_gen(insight_id: str, org: str):
         return "data: " + json.dumps(ev) + "\n\n"
 
     try:
-        yield emit({"phase": "loading", "message": "Accessing insights & decision history…"})
+        yield emit({"phase": "loading", "message": "Accessing insights & metrics…"})
         prompt, err = prepare_copilot_prompt(insight_id, organization_id=org)
         if err is not None:
             yield emit({"phase": "error", "error": err.get("error", "Unknown error")})
@@ -446,7 +392,7 @@ def _copilot_stream_gen(insight_id: str, org: str):
         full = "".join(acc)
         out = _parse_llm_response(full)
         out["insight_id"] = insight_id
-        out["provenance"] = out.get("provenance") or "analytics_insights, decision_history, supporting_metrics_snapshot"
+        out["provenance"] = out.get("provenance") or "analytics_insights, supporting_metrics_snapshot"
         yield emit({"phase": "done", "data": out})
     except Exception as e:
         logger.exception("Copilot stream failed")
@@ -460,7 +406,7 @@ def copilot_query(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Synthesized explanation from grounded sources only (insights + decision_history + snapshot)."""
+    """Synthesized explanation from grounded sources only (insights + snapshot)."""
     org = get_organization_id(request)
     from .audit_logger import log_copilot_query
     log_copilot_query(org, body.insight_id)
@@ -554,21 +500,6 @@ def copilot_sessions(
     return {"sessions": sessions}
 
 
-@app.post("/simulate_budget_shift")
-def simulate_budget_shift(
-    body: SimulateBudgetShiftBody,
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    from .simulation import simulate_budget_shift as run_sim
-    return run_sim(
-        client_id=body.client_id,
-        date_str=body.date,
-        from_campaign=body.from_campaign,
-        to_campaign=body.to_campaign,
-        amount=body.amount,
-    )
-
-
 @app.get("/health")
 def health():
     """Liveness: 503 until cache ready (middleware). Once ready, returns ok."""
@@ -599,24 +530,6 @@ def health_analytics():
         "cache_age_seconds": round(age_sec, 1) if age_sec is not None else None,
         "cache_stale": stale,
         "latency_avg_ms": round(latency_avg, 2) if latency_avg is not None else None,
-    }
-
-
-@app.get("/system/health")
-def system_health(
-    request: Request,
-    agent_name: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    _role: str = Depends(require_role("admin", "analyst", "viewer")),
-):
-    """System health: agent_runtime, failures, insight_volume, processing_latency from system_health table."""
-    org = get_organization_id(request)
-    from .clients.bigquery import get_system_health_latest
-    rows = get_system_health_latest(org, agent_name=agent_name, limit=limit)
-    return {
-        "items": [_serialize_item(r) for r in rows],
-        "count": len(rows),
-        "organization_id": org,
     }
 
 

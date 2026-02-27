@@ -31,12 +31,9 @@ export async function fetchFunnel(params = {}) {
   return res.json()
 }
 
+// Actions endpoint removed (no decision engine). Action Center shows empty list.
 export async function fetchActions(params = {}) {
-  const sp = new URLSearchParams()
-  if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${API_BASE}/api/v1/dashboard/actions?${sp}`, { headers: defaultHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
-  return res.json()
+  return Promise.resolve({ items: [], count: 0 })
 }
 
 // ----- Analysis API (raw staging tables, in-depth breakdowns) -----
@@ -107,16 +104,6 @@ export async function applyRecommendation(insightId, status, userId = null) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     body: JSON.stringify({ insight_id: insightId, status, user_id: userId }),
-  })
-  if (!res.ok) throw new Error(res.statusText)
-  return res.json()
-}
-
-export async function simulateBudgetShift(body) {
-  const res = await fetch(`${API_BASE}/simulate_budget_shift`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
-    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()

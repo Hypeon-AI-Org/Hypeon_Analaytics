@@ -10,7 +10,6 @@ from typing import Optional
 from fastapi import APIRouter, Request
 
 from ..analytics_cache import (
-    get_cached_actions,
     get_cached_business_overview,
     get_cached_campaign_performance,
     get_cached_funnel,
@@ -72,13 +71,3 @@ def funnel(
     return data
 
 
-@router.get("/actions")
-def actions(
-    request: Request,
-    client_id: Optional[int] = None,
-):
-    """Return top actions (increase_budget, reduce_budget, investigate) from cache."""
-    org = get_organization_id(request)
-    logger.info("Dashboard: actions | org=%s client_id=%s", org, client_id)
-    items = get_cached_actions(org, client_id)
-    return {"items": items, "count": len(items)}

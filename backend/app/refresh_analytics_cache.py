@@ -41,9 +41,7 @@ def do_refresh(
     try:
         from .clients.bigquery import (
             load_marketing_performance,
-            list_insights,
         )
-        from .top_decisions import top_decisions
     except ImportError as e:
         logger.warning("Cache refresh import failed: %s", e)
         result["error"] = str(e)
@@ -161,36 +159,6 @@ def do_refresh(
                 funnel=funnel,
             )
             result["updated"].append("funnel")
-    except Exception as e:
-        result["error"] = result["error"] or str(e)
-
-    # ----- Actions (from insights + top_decisions) -----
-    try:
-        rows = list_insights(organization_id=organization_id, client_id=cid, status="new", limit=100)
-        ranked = top_decisions(rows, top_n=10, status_filter="new")
-        action_map = {
-            "scale_opportunity": "increase_budget",
-            "waste_zero_revenue": "reduce_budget",
-            "roas_decline": "reduce_budget",
-            "funnel_leak": "investigate",
-            "anomaly": "investigate",
-        }
-        actions = []
-        for r in ranked:
-            it = (r.get("insight_type") or "").strip()
-            action = action_map.get(it, "investigate")
-            actions.append({
-                "insight_id": r.get("insight_id"),
-                "action": action,
-                "summary": r.get("summary"),
-                "confidence": _serialize_value(r.get("confidence")),
-                "expected_impact": r.get("expected_impact_value"),
-            })
-        analytics_cache.refresh_cache_for_org_client(
-            organization_id, cid,
-            actions=actions,
-        )
-        result["updated"].append("actions")
     except Exception as e:
         result["error"] = result["error"] or str(e)
 

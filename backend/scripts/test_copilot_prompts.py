@@ -66,7 +66,6 @@ CONVERSATION = [
     ("Follow-up Ads", "Show me Google Ads performance for the last 7 days."),
     ("GA4", "How is my website performing? Give me Google Analytics or GA4 data."),
     ("Follow-up GA4", "What about sessions and conversions by device?"),
-    ("Decision history", "What decisions have we applied recently? Show decision history."),
     ("Conceptual", "What is ROAS and why does it matter?"),
     ("Short reply", "Thanks, that helps."),
     ("Ambiguous ask", "Give me a quick summary of everything."),

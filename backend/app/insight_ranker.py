@@ -8,7 +8,20 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .config_loader import get
-from .impact_estimator import get_severity
+
+# Inline severity mapping (no decision engine dependency)
+SEVERITY_BY_INSIGHT_TYPE = {
+    "scale_opportunity": "medium",
+    "waste_zero_revenue": "high",
+    "roas_decline": "high",
+    "funnel_leak": "medium",
+    "anomaly": "high",
+}
+
+
+def get_severity(insight_type: str) -> str:
+    return SEVERITY_BY_INSIGHT_TYPE.get((insight_type or "").strip(), "medium")
+
 
 SEVERITY_WEIGHT = {"low": 0.5, "medium": 1.0, "high": 1.5, "critical": 2.0}
 

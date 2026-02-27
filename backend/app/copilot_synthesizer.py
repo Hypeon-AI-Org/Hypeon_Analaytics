@@ -1,6 +1,6 @@
 """
-Copilot synthesis: ONLY from analytics_insights, decision_history, supporting_metrics_snapshot.
-No raw analytics tables. Include explanation, business reasoning, confidence, data provenance.
+Copilot synthesis: ONLY from analytics_insights and supporting_metrics_snapshot (marts layer).
+No decision store; no raw analytics tables. Include explanation, business reasoning, confidence, data provenance.
 Reject hallucinated responses.
 """
 from __future__ import annotations
@@ -26,32 +26,29 @@ def get_llm_client() -> Callable[[str], str]:
     def _stub(prompt: str) -> str:
         return json.dumps({
             "summary": "Summary from grounded data.",
-            "explanation": "Explanation with top 3 evidence points from insight and decision history.",
-            "business_reasoning": "Based on evidence and past decisions only.",
+            "explanation": "Explanation with top 3 evidence points from insight and metrics.",
+            "business_reasoning": "Based on evidence only.",
             "action_steps": ["Step 1", "Step 2"],
             "expected_impact": {"metric": "revenue", "estimate": 0.0, "units": "currency"},
-            "provenance": "analytics_insights, decision_history, supporting_metrics_snapshot",
+            "provenance": "analytics_insights, supporting_metrics_snapshot",
             "confidence": 0.85,
             "tldr": "TL;DR from data only.",
         })
     return _stub
 
 
-PROMPT_TEMPLATE = """You are a senior growth analyst. Use ONLY the following grounded inputs. Do NOT invent metrics or query raw analytics. Reference past outcomes when relevant.
+PROMPT_TEMPLATE = """You are a senior growth analyst. Use ONLY the following grounded inputs. Do NOT invent metrics or query raw analytics.
 
-## Current insight (from analytics_insights)
+## Current insight (from analytics_insights / marts)
 {insight_json}
-
-## Decision history for this insight (if any)
-{decision_history_json}
 
 ## Supporting metrics snapshot (pre-aggregated)
 {supporting_metrics_json}
 {copilot_context_section}
 
 ## Instructions
-- Explain using ONLY the above data. Reference past applied decisions and outcomes when relevant.
-- Include business reasoning tied to evidence and provenance. Answer like a senior analyst aware of past actions.
+- Explain using ONLY the above data.
+- Include business reasoning tied to evidence and provenance. Answer like a senior analyst.
 - State confidence (0-1) and data provenance. Do NOT dump raw metrics; synthesize and reason.
 - If the data is insufficient, say so; do NOT hallucinate.
 - Output JSON only with: summary, explanation, business_reasoning, action_steps, expected_impact, provenance, confidence, tldr.
@@ -93,45 +90,26 @@ def _serialize_insight(insight: dict) -> str:
 
 def _build_copilot_context_section(
     recent_insights: Optional[list[dict]] = None,
-    executive_summary: Optional[dict] = None,
-    trend_history: Optional[list[dict]] = None,
 ) -> str:
-    """Build optional context: recent insights, executive summary, trend (past applied) history."""
-    parts = []
-    if recent_insights:
-        parts.append("## Recent insights (for context)\n" + json.dumps(
-            [{k: v for k, v in i.items() if k in ("insight_id", "summary", "insight_type", "status")} for i in recent_insights[:5]],
-            default=str,
-        ))
-    if executive_summary:
-        parts.append("## Executive summary (latest)\n" + json.dumps(
-            {k: v for k, v in executive_summary.items() if k in ("top_risks", "top_opportunities", "recommended_focus_today", "overall_growth_state")},
-            default=str,
-        ))
-    if trend_history:
-        parts.append("## Past applied decisions (trend history)\n" + json.dumps(
-            [{k: v for k, v in t.items() if k in ("insight_id", "recommended_action", "applied_at", "outcome_metrics_after_7d", "outcome_metrics_after_30d")} for t in trend_history[:10]],
-            default=str,
-        ))
-    if not parts:
+    """Build optional context: recent insights only (no decision/agent data)."""
+    if not recent_insights:
         return ""
-    return "\n" + "\n".join(parts) + "\n"
+    return "\n## Recent insights (for context)\n" + json.dumps(
+        [{k: v for k, v in i.items() if k in ("insight_id", "summary", "insight_type", "status")} for i in recent_insights[:5]],
+        default=str,
+    ) + "\n"
 
 
 def build_prompt_grounded(
     insight: dict,
-    decision_history: list[dict],
     supporting_metrics: Optional[dict],
     *,
     recent_insights: Optional[list[dict]] = None,
-    executive_summary: Optional[dict] = None,
-    trend_history: Optional[list[dict]] = None,
 ) -> str:
-    """Build prompt from insight, decision_history, supporting_metrics_snapshot, and optional context memory."""
-    context_section = _build_copilot_context_section(recent_insights, executive_summary, trend_history)
+    """Build prompt from insight and supporting_metrics_snapshot only (marts layer)."""
+    context_section = _build_copilot_context_section(recent_insights)
     return PROMPT_TEMPLATE.format(
         insight_json=_serialize_insight(insight),
-        decision_history_json=json.dumps(decision_history[:10], default=str),
         supporting_metrics_json=json.dumps(supporting_metrics or {}, default=str),
         copilot_context_section=context_section,
     )
@@ -172,36 +150,25 @@ def prepare_copilot_prompt(
     if load_insight is None:
         from .clients.bigquery import (
             get_insight_by_id,
-            get_decision_history,
             get_supporting_metrics_snapshot,
             list_insights,
-            get_latest_executive_summary,
         )
         insight = get_insight_by_id(insight_id, organization_id)
         if insight is None:
             return None, {"error": "insight not found", "insight_id": insight_id}
         org = (insight.get("organization_id") or organization_id or "default")
         client_id = int(insight.get("client_id") or 0)
-        history = get_decision_history(org, client_id=client_id, insight_id=insight_id)
         supporting = get_supporting_metrics_snapshot(org, client_id, insight_id)
         recent_insights = list_insights(org, client_id=client_id, status=None, limit=10, offset=0)
-        executive_summary_list = get_latest_executive_summary(org, client_id=client_id, limit=1)
-        executive_summary = executive_summary_list[0] if executive_summary_list else None
-        trend_history = get_decision_history(org, client_id=client_id, status="applied", limit=15)
     else:
         insight = load_insight(insight_id)
         if insight is None:
             return None, {"error": "insight not found", "insight_id": insight_id}
-        history = []
         supporting = None
         recent_insights = None
-        executive_summary = None
-        trend_history = None
     prompt = build_prompt_grounded(
-        insight, history, supporting,
+        insight, supporting,
         recent_insights=recent_insights,
-        executive_summary=executive_summary,
-        trend_history=trend_history,
     )
     return prompt, None
 
@@ -215,7 +182,7 @@ def synthesize(
     llm_client: Optional[Callable[[str], str]] = None,
 ) -> dict:
     """
-    Load insight ONLY from analytics_insights; load decision_history and supporting_metrics_snapshot.
+    Load insight ONLY from analytics_insights and supporting_metrics_snapshot (marts layer).
     Build grounded prompt; return structured output with provenance. No raw table access.
     """
     if not get("copilot_grounding_only", True):
@@ -223,40 +190,29 @@ def synthesize(
     if load_insight is None:
         from .clients.bigquery import (
             get_insight_by_id,
-            get_decision_history,
             get_supporting_metrics_snapshot,
             list_insights,
-            get_latest_executive_summary,
         )
         insight = get_insight_by_id(insight_id, organization_id)
         if insight is None:
             return {"error": "insight not found", "insight_id": insight_id}
         org = (insight.get("organization_id") or organization_id or "default")
         client_id = int(insight.get("client_id") or 0)
-        history = get_decision_history(org, client_id=client_id, insight_id=insight_id)
         supporting = get_supporting_metrics_snapshot(org, client_id, insight_id)
         recent_insights = list_insights(org, client_id=client_id, status=None, limit=10, offset=0)
-        executive_summary_list = get_latest_executive_summary(org, client_id=client_id, limit=1)
-        executive_summary = executive_summary_list[0] if executive_summary_list else None
-        trend_history = get_decision_history(org, client_id=client_id, status="applied", limit=15)
     else:
         insight = load_insight(insight_id)
         if insight is None:
             return {"error": "insight not found", "insight_id": insight_id}
-        history = []
         supporting = None
         recent_insights = None
-        executive_summary = None
-        trend_history = None
     prompt = build_prompt_grounded(
-        insight, history, supporting,
+        insight, supporting,
         recent_insights=recent_insights,
-        executive_summary=executive_summary,
-        trend_history=trend_history,
     )
     fn = llm_client or get_llm_client()
     response_text = fn(prompt)
     out = _parse_llm_response(response_text)
     out["insight_id"] = insight_id
-    out["provenance"] = out.get("provenance") or "analytics_insights, decision_history, supporting_metrics_snapshot"
+    out["provenance"] = out.get("provenance") or "analytics_insights, supporting_metrics_snapshot"
     return out

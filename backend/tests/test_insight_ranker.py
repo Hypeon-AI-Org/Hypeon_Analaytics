@@ -4,13 +4,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from datetime import datetime, timezone, timedelta
-from backend.app.insight_ranker import compute_priority_score, rank_insights, top_per_client
-from backend.app.impact_estimator import get_severity
+from backend.app.insight_ranker import compute_priority_score, rank_insights, top_per_client, get_severity
 
 
 def test_severity():
     assert get_severity("waste_zero_revenue") == "high"
-    assert get_severity("scale_opportunity") == "low"
+    assert get_severity("scale_opportunity") == "medium"
 
 
 def test_compute_priority_score():

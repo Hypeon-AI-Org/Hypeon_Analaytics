@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { fetchInsights, applyRecommendation, simulateBudgetShift } from './api'
+import { fetchInsights, applyRecommendation } from './api'
 import ErrorBanner from './components/ErrorBanner'
 import PageReportHeader from './components/PageReportHeader'
 
@@ -10,9 +10,6 @@ export default function InsightsList() {
   const [clientId, setClientId] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [expandedId, setExpandedId] = useState(null)
-  const [simulateModal, setSimulateModal] = useState(null)
-  const [simulateResult, setSimulateResult] = useState(null)
-  const [simulateLoading, setSimulateLoading] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -45,36 +42,6 @@ export default function InsightsList() {
     applyRecommendation(insightId, 'rejected')
       .then(() => load())
       .catch((err) => setError(err.message))
-  }
-
-  const openSimulate = (insight) => {
-    setSimulateModal(insight)
-    setSimulateResult(null)
-  }
-
-  const runSimulate = (fromCampaign, toCampaign, amount) => {
-    if (!simulateModal) return
-    setSimulateLoading(true)
-    simulateBudgetShift({
-      client_id: simulateModal.client_id,
-      date: simulateModal.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10),
-      from_campaign: fromCampaign,
-      to_campaign: toCampaign,
-      amount: parseFloat(amount) || 0,
-    })
-      .then((data) => {
-        setSimulateResult(data)
-        setSimulateLoading(false)
-      })
-      .catch((err) => {
-        setSimulateResult({ error: err.message })
-        setSimulateLoading(false)
-      })
-  }
-
-  const closeSimulate = () => {
-    setSimulateModal(null)
-    setSimulateResult(null)
   }
 
   return (
@@ -159,14 +126,6 @@ export default function InsightsList() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => openSimulate(insight)}
-                      className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors"
-                      aria-label="Simulate budget shift"
-                    >
-                      Simulate
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => handleApprove(insight.insight_id)}
                       className="rounded-xl bg-emerald-600 text-white px-3 py-2 text-sm font-medium hover:bg-emerald-700 transition-colors"
                       aria-label="Approve"
@@ -197,94 +156,6 @@ export default function InsightsList() {
         </div>
       )}
 
-      {simulateModal && (
-        <SimulateModal
-          insight={simulateModal}
-          result={simulateResult}
-          loading={simulateLoading}
-          onRun={runSimulate}
-          onClose={closeSimulate}
-        />
-      )}
-    </div>
-  )
-}
-
-function SimulateModal({ insight, result, loading, onRun, onClose }) {
-  const [fromCampaign, setFromCampaign] = useState(insight.entity_id?.split('_')[0] || '')
-  const [toCampaign, setToCampaign] = useState('')
-  const [amount, setAmount] = useState('100')
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    onRun(fromCampaign, toCampaign, amount)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="simulate-title">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 border border-slate-200">
-        <h2 id="simulate-title" className="text-lg font-semibold text-slate-800 mb-4">Simulate budget shift</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="from-campaign" className="block text-sm font-medium text-slate-700">From campaign</label>
-            <input
-              id="from-campaign"
-              type="text"
-              value={fromCampaign}
-              onChange={(e) => setFromCampaign(e.target.value)}
-              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="to-campaign" className="block text-sm font-medium text-slate-700">To campaign</label>
-            <input
-              id="to-campaign"
-              type="text"
-              value={toCampaign}
-              onChange={(e) => setToCampaign(e.target.value)}
-              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="amount" className="block text-sm font-medium text-slate-700">Amount</label>
-            <input
-              id="amount"
-              type="number"
-              min="0"
-              step="any"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
-              required
-            />
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading} className="rounded-xl bg-brand-600 text-white px-4 py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors">
-              {loading ? 'Running…' : 'Run simulation'}
-            </button>
-          </div>
-        </form>
-        {result && (
-          <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700">
-            {result.error ? (
-              <p className="text-red-600">{result.error}</p>
-            ) : (
-              <>
-                <p><strong>Expected delta:</strong> {result.expected_delta}</p>
-                <p><strong>Confidence:</strong> {result.confidence}</p>
-                {result.low && <p>Low: {JSON.stringify(result.low)}</p>}
-                {result.median && <p>Median: {JSON.stringify(result.median)}</p>}
-                {result.high && <p>High: {JSON.stringify(result.high)}</p>}
-              </>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   )
 }

@@ -12,4 +12,3 @@ copilot_grounding_only: true
 insight_cooldown_days: 5
 min_priority_score: 0.05
 impact_threshold: 0.01
-top_decisions_n: 3

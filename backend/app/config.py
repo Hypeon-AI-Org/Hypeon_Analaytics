@@ -6,7 +6,7 @@ from typing import List
 
 
 def get_bq_project() -> str:
-    """GCP project for application DB (analytics_insights, decision_history, marketing_performance_daily, etc.)."""
+    """GCP project for application DB (analytics_insights, marketing_performance_daily, marts, etc.)."""
     return os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
 
 

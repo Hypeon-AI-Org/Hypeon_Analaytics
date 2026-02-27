@@ -3,7 +3,7 @@
 ## Overview
 
 - **Unified table**: `marketing_performance_daily` — one row per (client_id, date, channel, campaign_id, ad_group_id, device) with spend, clicks, impressions, sessions, conversions, revenue, roas, cpa, ctr, conversion_rate, and 7d/28d rolling baselines.
-- **Decision Store**: `analytics_insights` table + `analytics_recommendations` view.
+- **Marts / insights**: `analytics_insights` table (optional); `supporting_metrics_snapshot` for Copilot context.
 
 ## Environment
 
@@ -18,7 +18,6 @@ Set before running scripts or DAGs:
 ## Running
 
 - Unified table: `python backend/scripts/run_unified_table.py` (or invoke via Airflow/Cloud Run).
-- Decision Store: `python backend/scripts/run_decision_store.py`.
 
 ## Example test query (unified table)
 

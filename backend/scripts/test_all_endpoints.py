@@ -62,27 +62,21 @@ def main():
 
     code, data = get("/health/analytics")
     ok("GET /health/analytics returns 200", code == 200)
-    code, data = get("/system/health")
-    ok("GET /system/health returns 200", code == 200)
 
     # ---- Dashboard (cache) ----
     print("\n--- Dashboard API ---")
-    for path in ["/api/v1/dashboard/business-overview", "/api/v1/dashboard/campaign-performance", "/api/v1/dashboard/funnel", "/api/v1/dashboard/actions"]:
+    for path in ["/api/v1/dashboard/business-overview", "/api/v1/dashboard/campaign-performance", "/api/v1/dashboard/funnel"]:
         code, data = get(path)
         ok(f"GET {path} 200", code == 200, f"type={type(data).__name__}")
     code, data = get("/api/v1/dashboard/business-overview", {"client_id": 1})
     ok("GET business-overview with client_id=1", code == 200)
 
-    # ---- Insights & decisions ----
+    # ---- Insights ----
     print("\n--- Insights & Decisions ---")
     code, data = get("/insights")
     ok("GET /insights 200", code == 200 and "items" in data if isinstance(data, dict) else True)
     code, data = get("/insights/top")
     ok("GET /insights/top 200", code == 200)
-    code, data = get("/decisions/top")
-    ok("GET /decisions/top 200", code == 200)
-    code, data = get("/decisions/history")
-    ok("GET /decisions/history 200", code == 200)
 
     # ---- Copilot chat (LLM + run_sql) ----
     print("\n--- Copilot Chat ---")

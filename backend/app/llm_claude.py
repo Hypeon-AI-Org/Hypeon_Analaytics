@@ -129,7 +129,7 @@ def _fallback_json() -> str:
         "business_reasoning": "Please try again or use the insight data above.",
         "action_steps": [],
         "expected_impact": {"metric": "revenue", "estimate": 0.0, "units": "currency"},
-        "provenance": "analytics_insights, decision_history, supporting_metrics_snapshot",
+        "provenance": "analytics_insights, supporting_metrics_snapshot",
         "confidence": 0.3,
         "tldr": "Request failed; see explanation.",
     })
