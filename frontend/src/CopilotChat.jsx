@@ -269,9 +269,6 @@ export default function CopilotChat() {
               ))}
             </ul>
           )}
-          {sessions.length > 0 && (
-            <p className="px-2 py-1.5 text-[10px] text-slate-500 italic">No recent chats</p>
-          )}
         </div>
         <div ref={listEndRef} />
         <div className="p-3 border-t border-white/10">
