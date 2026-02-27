@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Check how data looks in Google Ads: raw AdGroupBasicStats table and ads_daily_staging.
-Uses BQ_SOURCE_PROJECT, ADS_DATASET (raw, in EU), BQ_PROJECT, ANALYTICS_DATASET (staging in europe-north2), BQ_LOCATION_ADS.
+Check how data looks in Google Ads: raw AdGroupBasicStats table and marketing_performance_daily (channel=google_ads).
+Uses BQ_SOURCE_PROJECT, ADS_DATASET (raw, in EU), BQ_PROJECT, ANALYTICS_DATASET, BQ_LOCATION_ADS.
 """
 import os
 import sys
@@ -84,7 +84,7 @@ def main():
     except Exception as e:
         print(f"Error: {e}")
 
-    # ---- 3) ads_daily_staging (pipeline output; in europe-north2 after copy) ----
+    # ---- 3) marketing_performance_daily (Google Ads channel only) ----
     client_main = bigquery.Client(project=BQ_PROJECT, location=BQ_LOCATION)
     q_staging = f"""
     SELECT
@@ -97,9 +97,10 @@ def main():
       SUM(conversions) AS total_conversions,
       SUM(revenue) AS total_revenue,
       SUM(sessions) AS total_sessions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ads_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'google_ads'
     """
-    print("\n=== ads_daily_staging (pipeline output in analytics) ===")
+    print("\n=== marketing_performance_daily (channel=google_ads) ===")
     try:
         df3 = client_main.query(q_staging).to_dataframe()
         if df3.empty:
@@ -109,15 +110,16 @@ def main():
     except Exception as e:
         print(f"Error (table may not exist yet): {e}")
 
-    # ---- 4) Sample rows from ads_daily_staging ----
+    # ---- 4) Sample rows (Google Ads from unified table) ----
     q_sample = f"""
     SELECT client_id, date, channel, campaign_id, ad_group_id, device,
            spend, clicks, impressions, conversions, revenue, sessions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ads_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'google_ads'
     ORDER BY date DESC, spend DESC
     LIMIT 15
     """
-    print("\n=== ads_daily_staging sample (last 15 rows by date, spend) ===")
+    print("\n=== marketing_performance_daily sample (google_ads, last 15 rows) ===")
     try:
         df4 = client_main.query(q_sample).to_dataframe()
         if df4.empty:

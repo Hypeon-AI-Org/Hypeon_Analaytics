@@ -2,8 +2,6 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { copilotChat, copilotChatHistory, fetchCopilotSessions } from './api'
-import DynamicDashboardRenderer from './components/DynamicDashboardRenderer'
-import DashboardRendererErrorBoundary from './components/DashboardRendererErrorBoundary'
 
 const COPILOT_SESSION_KEY = 'hypeon_copilot_session_id'
 
@@ -205,7 +203,7 @@ export default function CopilotChat() {
       }
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: res.text || '', layout: res.layout || null },
+        { role: 'assistant', text: res.answer || res.text || '', data: res.data || null },
       ])
     } catch (err) {
       setError(err.message || 'Something went wrong')
@@ -387,11 +385,29 @@ export default function CopilotChat() {
                           <ReactMarkdown>{msg.text}</ReactMarkdown>
                         </div>
                       ) : null}
-                      {msg.layout?.widgets?.length > 0 && (
-                        <div className="mt-3 rounded-xl border border-slate-200 bg-white/90 p-3">
-                          <DashboardRendererErrorBoundary>
-                            <DynamicDashboardRenderer layout={msg.layout} />
-                          </DashboardRendererErrorBoundary>
+                      {msg.data && Array.isArray(msg.data) && msg.data.length > 0 && (
+                        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-slate-100">
+                              <tr>
+                                {Object.keys(msg.data[0]).map((k) => (
+                                  <th key={k} className="px-3 py-2 text-left font-medium text-slate-700">{k}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {msg.data.slice(0, 100).map((row, i) => (
+                                <tr key={i} className="border-t border-slate-100">
+                                  {Object.values(row).map((v, j) => (
+                                    <td key={j} className="px-3 py-2 text-slate-600">{String(v ?? '')}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {msg.data.length > 100 && (
+                            <p className="px-3 py-2 text-xs text-slate-500">Showing first 100 of {msg.data.length} rows</p>
+                          )}
                         </div>
                       )}
                     </>

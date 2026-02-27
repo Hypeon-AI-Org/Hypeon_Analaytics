@@ -1,7 +1,6 @@
 """
-Copilot chat handler: multi-turn conversation with a single universal tool (run_sql). Text-only responses.
-The LLM generates SQL from the user query and the knowledge-base schema; run_sql executes it against ADS_DATASET and GA4_DATASET only.
-No short-circuits: all data questions are answered by the LLM calling run_sql with the appropriate query.
+Copilot chat handler: User question -> Schema injection -> LLM SQL -> Validation -> BigQuery -> Answer + data.
+Single tool: run_sql. Queries hypeon_marts (and allowed raw ADS_DATASET/GA4_DATASET). Response format: { answer, data }.
 """
 from __future__ import annotations
 
@@ -17,25 +16,23 @@ logger = logging.getLogger(__name__)
 
 
 def _build_system_template(client_id: int) -> str:
-    """Build system prompt with schema; single tool run_sql for ADS_DATASET and GA4_DATASET only."""
+    """Build system prompt with live schema; run_sql queries hypeon_marts (and allowed raw datasets)."""
     schema = get_schema_for_copilot()
-    return f"""You are an expert marketing analytics assistant. Answer questions using only data from the two allowed datasets (ADS_DATASET and GA4_DATASET). Do not query any other tables or datasets.
+    return f"""You are an expert marketing analytics assistant. Answer using data from the allowed BigQuery datasets (hypeon_marts primary; ADS_DATASET and GA4_DATASET when needed). Do not query other tables or datasets.
 
-IMPORTANT: Only raw tables exist in these datasets. There is NO ga4_daily_staging, NO ads_daily_staging, and NO marketing_performance_daily. For GA4 use the events_* tables (event_name, event_date, items array with item_id; traffic_source.source for traffic source). For Ads use the ads_* tables (customer_id, segments_date, metrics_*). Questions about item ID, product ID, or "item views" must use GA4 events_* (not Ads); campaign_id and ad_group_id in Ads are not product/item IDs.
-
-## Knowledge base (database schema)
+## Knowledge base (database schema, live from hypeon_marts when available)
 {schema}
 
 ## Tool
-You have one universal tool: **run_sql**. For any data question, generate a single SELECT (or WITH ... SELECT) query and call run_sql with it. You may only query tables in ADS_DATASET and GA4_DATASET; use the schema above. Generate the query from the user's question: totals, breakdowns by date/device/campaign, item view counts (GA4 events_*: event_name IN ('view_item','view_item_list'), UNNEST(COALESCE(items,[])) with item_id), event counts, or any other analysis. For Ads tables filter by customer_id = {client_id} when relevant. For GA4 events_* always filter by event_date to limit scan. Use backtick-quoted table names.
+You have one tool: **run_sql**. For any data question, generate a single SELECT (or WITH ... SELECT) and call run_sql. Prefer hypeon_marts tables (fct_sessions, fct_ad_spend). For item views use fct_sessions with event_name IN ('view_item','view_item_list') and item_id; or raw GA4 events_* with UNNEST(COALESCE(items,[])) AS item and item.item_id. Use backtick-quoted table names. For Ads filter by customer_id = {client_id} when relevant. Always filter by date/event_date to limit scan.
 
-Call run_sql when the user's question needs data. Do not call it for simple greetings or thanks.
+Call run_sql when the user needs data. Do not call it for greetings or thanks.
 
 ## Answering
-- Base answers only on tool results or the conversation. Never invent metrics.
-- Be clear and concise. Match response length to the query.
-- If tools return no data or empty results, say so and suggest what they can ask next. Do not make up numbers.
-- Do not use emojis. Use plain text only."""
+- Base answers only on tool results. Never invent metrics.
+- Be clear and concise. If tool returns rows, summarize in a short answer; the raw data is also returned to the user.
+- If tools return no data or error, say so and suggest what to ask next. Do not make up numbers.
+- Do not use emojis. Plain text only. Response must be answer + optional data (no charts/funnels/cards)."""
 
 
 def chat(
@@ -56,7 +53,7 @@ def chat(
     except Exception as e:
         logger.exception("Copilot chat imports failed")
         sid = session_id or str(uuid.uuid4())
-        return {"text": f"Configuration error: {str(e)[:200]}", "session_id": str(sid)}
+        return {"answer": f"Configuration error: {str(e)[:200]}", "data": [], "text": f"Configuration error: {str(e)[:200]}", "session_id": str(sid)}
 
     store = get_session_store()
     sid = session_id or str(uuid.uuid4())
@@ -139,12 +136,12 @@ def chat(
         if is_gemini_configured():
             logger.info("Copilot: served by Gemini (Claude not configured or not used)")
             return gemini_tools_chat(msgs, COPILOT_TOOLS, system=system_prompt)
-        return {"text": "No LLM configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY for the Copilot."}
+        return {"answer": "No LLM configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY for the Copilot.", "data": [], "text": "No LLM configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY for the Copilot."}
 
     try:
         msg_clean = (message or "").strip()
         if not msg_clean:
-            return {"text": "Please type a message to get a response.", "session_id": sid}
+            return {"answer": "Please type a message to get a response.", "data": [], "text": "Please type a message to get a response.", "session_id": sid}
         max_message_len = 32000
         if len(msg_clean) > max_message_len:
             msg_clean = msg_clean[:max_message_len] + "... [truncated]"
@@ -167,6 +164,7 @@ def chat(
         messages.append({"role": "user", "content": message})
 
         reply_text = ""
+        last_sql_data: list[dict] = []
         for _ in range(max_rounds):
             result = _llm_tools_call(messages)
             if not isinstance(result, dict):
@@ -200,6 +198,13 @@ def chat(
                     result_str = json.dumps({"error": str(tool_err)[:200], "tool": name})
                 if not isinstance(result_str, str):
                     result_str = json.dumps(result_str) if result_str is not None else "{}"
+                # Track last run_sql rows for response data
+                if name == "run_sql":
+                    try:
+                        parsed = json.loads(result_str)
+                        last_sql_data = parsed.get("rows") if isinstance(parsed.get("rows"), list) else []
+                    except Exception:
+                        last_sql_data = []
                 tool_results.append({"type": "tool_result", "tool_use_id": tid, "content": result_str})
             messages.append({"role": "user", "content": tool_results})
 
@@ -227,7 +232,13 @@ def chat(
 
         store.append(organization_id, sid, "user", message)
         store.append(organization_id, sid, "assistant", final_text, meta=None)
-        return {"text": final_text, "session_id": sid}
+        # Response format: { answer, data } per spec. No charts/funnels/cards.
+        return {
+            "answer": final_text,
+            "data": last_sql_data,
+            "text": final_text,  # backward compat
+            "session_id": sid,
+        }
     except Exception as e:
         import traceback
         logger.exception(
@@ -237,9 +248,11 @@ def chat(
         logger.info("Copilot traceback:\n%s", traceback.format_exc())
         msg_for_greeting = (message or "").strip().lower()
         if msg_for_greeting in ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo") or msg_for_greeting.rstrip("!?.") in ("hi", "hello", "hey"):
-            return {"text": "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets.", "session_id": sid}
+            return {"answer": "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets.", "data": [], "text": "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets.", "session_id": sid}
         err_preview = str(e)[:150].replace("\n", " ")
         return {
+            "answer": f"I ran into a problem ({err_preview}). Please try again in a moment.",
+            "data": [],
             "text": f"I ran into a problem ({err_preview}). Please try again in a moment.",
             "session_id": sid,
         }

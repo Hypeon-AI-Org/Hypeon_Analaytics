@@ -21,9 +21,7 @@
 
 | Table | Rows | Notes |
 |-------|------|--------|
-| **ads_daily_staging** | 804 | Google Ads pipeline output |
-| **ga4_daily_staging** | 15 | GA4 pipeline output (only ~6 days of data) |
-| **marketing_performance_daily** | 465 | Unified table (Ads + GA4); used by dashboard and Copilot |
+| **marketing_performance_daily** | 465 | Unified table (Ads + GA4 by channel); used by dashboard and Copilot |
 | **analytics_insights** | (missing) | Table not found in hypeon-ai-prod; Decision Store not created yet |
 
 ---
@@ -45,9 +43,9 @@
 
 ---
 
-## 3. GA4 daily staging (hypeon-ai-prod)
+## 3. marketing_performance_daily (channel=ga4)
 
-**Table:** `hypeon-ai-prod.analytics.ga4_daily_staging`
+**Table:** `hypeon-ai-prod.analytics.marketing_performance_daily` WHERE channel = 'ga4'
 
 | Metric | Value |
 |--------|--------|
@@ -68,7 +66,7 @@
 | 2026-02-24 | ga4     | mobile  | 0.0   | 5,456.50  | 42          | 7,536    |
 | 2026-02-24 | ga4     | tablet  | 0.0   | 161.03    | 3           | 316      |
 
-**Assessment:** GA4 staging has only 15 rows (~5 days × 3 devices). Revenue and sessions are populated; limited history for trends and baselines.
+**Assessment:** GA4 rows in unified table; revenue and sessions populated. Limited history for trends and baselines.
 
 ---
 
@@ -89,9 +87,9 @@
 
 ---
 
-## 5. Google Ads daily staging (hypeon-ai-prod)
+## 5. marketing_performance_daily (channel=google_ads)
 
-**Table:** `hypeon-ai-prod.analytics.ads_daily_staging`
+**Table:** `hypeon-ai-prod.analytics.marketing_performance_daily` WHERE channel = 'google_ads'
 
 | Metric | Value |
 |--------|--------|
@@ -175,7 +173,7 @@ INSIGHTS_JSON_PATH=agents/output/insights_latest.json
 ### Gaps and recommendations
 
 1. **GA4 history is short**  
-   Only a few days in `ga4_daily_staging`. Run the GA4 pipeline regularly so history grows; then 7d/28d baselines and trend analyses will improve.
+   If GA4 rows in `marketing_performance_daily` are few, run the pipeline regularly so history grows; then 7d/28d baselines and trend analyses will improve.
 
 2. **Single client**  
    All data is `client_id = 1`. Fine for single-tenant; for multi-tenant, ensure Ads/GA4 exports and pipeline use correct client mapping.

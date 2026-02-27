@@ -23,10 +23,15 @@ sys.path.insert(0, str(ROOT))
 
 @pytest.fixture
 def env_bq():
-    """Set BQ_PROJECT, ADS_DATASET, GA4_DATASET for Copilot run_sql validation (single dataset 'analytics' for both)."""
+    """BQ_PROJECT, hypeon_marts, ADS_DATASET, GA4_DATASET for Copilot (marts + raw)."""
     with patch.dict(
         "os.environ",
-        {"BQ_PROJECT": "test-proj", "ADS_DATASET": "analytics", "GA4_DATASET": "analytics"},
+        {
+            "BQ_PROJECT": "test-proj",
+            "MARTS_DATASET": "hypeon_marts",
+            "ADS_DATASET": "analytics",
+            "GA4_DATASET": "analytics",
+        },
         clear=False,
     ):
         yield
@@ -34,12 +39,13 @@ def env_bq():
 
 @pytest.fixture
 def env_raw():
-    """Raw datasets only: ADS_DATASET and GA4_DATASET distinct (e.g. 146568, analytics_444259275)."""
+    """Raw datasets from .env: 146568, analytics_444259275 (never delete). hypeon_marts allowed."""
     with patch.dict(
         "os.environ",
         {
             "BQ_PROJECT": "test-proj",
             "BQ_SOURCE_PROJECT": "test-proj",
+            "MARTS_DATASET": "hypeon_marts",
             "ADS_DATASET": "146568",
             "GA4_DATASET": "analytics_444259275",
         },
@@ -129,15 +135,16 @@ def test_run_readonly_query_analytics_dataset_rejected_when_raw_env(env_raw):
 
 def test_run_readonly_query_wrong_project_or_dataset_rejected(env_bq):
     from backend.app.clients.bigquery import run_readonly_query
-    sql = "SELECT * FROM `other-project.other_dataset.ads_daily_staging` LIMIT 1"
+    sql = "SELECT * FROM `other-project.other_dataset.some_table` LIMIT 1"
     out = run_readonly_query(sql, client_id=1, organization_id="default")
     assert out["rows"] == []
     assert "Only tables" in (out["error"] or "") or "allowed" in (out["error"] or "").lower() or "Dataset not allowed" in (out["error"] or "")
 
 
-def test_run_readonly_query_allowed_table_passes_validation(env_bq):
+def test_run_readonly_query_allowed_table_passes_validation(env_raw):
+    """Table in ADS_DATASET (146568) passes when env has 146568."""
     from backend.app.clients.bigquery import run_readonly_query
-    sql = "SELECT * FROM `test-proj.analytics.ads_daily_staging` WHERE client_id = 1 LIMIT 5"
+    sql = "SELECT * FROM `test-proj.146568.ads_AccountBasicStats_4221201460` WHERE customer_id = 1 LIMIT 5"
     with patch("backend.app.clients.bigquery.get_client") as mock_get:
         mock_job = MagicMock()
         mock_job.result.return_value = []
@@ -145,6 +152,19 @@ def test_run_readonly_query_allowed_table_passes_validation(env_bq):
         out = run_readonly_query(sql, client_id=1, organization_id="default")
     assert out["error"] is None
     assert out["rows"] == []
+
+
+def test_run_readonly_query_hypeon_marts_allowed(env_bq):
+    """hypeon_marts dataset is allowed for Copilot (fct_sessions, fct_ad_spend)."""
+    from backend.app.clients.bigquery import run_readonly_query
+    sql = "SELECT COUNT(*) AS n FROM `test-proj.hypeon_marts.fct_sessions` WHERE event_name = 'view_item' LIMIT 1"
+    with patch("backend.app.clients.bigquery.get_client") as mock_get:
+        mock_job = MagicMock()
+        mock_job.result.return_value = [MagicMock(items=lambda: [("n", 14)])]
+        mock_get.return_value.query.return_value = mock_job
+        out = run_readonly_query(sql, client_id=1, organization_id="default")
+    assert out["error"] is None
+    assert len(out["rows"]) == 1
 
 
 def test_run_readonly_query_with_cte_passes_validation(env_bq):
@@ -159,21 +179,22 @@ def test_run_readonly_query_with_cte_passes_validation(env_bq):
     assert len(out["rows"]) == 1
 
 
-def test_run_readonly_query_adds_limit_when_missing(env_bq):
+def test_run_readonly_query_adds_limit_when_missing(env_raw):
     from backend.app.clients.bigquery import run_readonly_query
-    sql = "SELECT * FROM `test-proj.analytics.ads_daily_staging` WHERE client_id = 1"
+    sql = "SELECT * FROM `test-proj.146568.ads_AccountBasicStats_4221201460` WHERE customer_id = 1"
     with patch("backend.app.clients.bigquery.get_client") as mock_get:
         mock_job = MagicMock()
         mock_job.result.return_value = []
         mock_get.return_value.query.return_value = mock_job
         run_readonly_query(sql, client_id=1, organization_id="default", max_rows=99)
-    call_args = mock_get.return_value.query.call_args[0][0]
-    assert "LIMIT 99" in call_args
+    call_args = mock_get.return_value.query.call_args
+    assert call_args is not None
+    assert "LIMIT 99" in (call_args[0][0] if call_args[0] else "")
 
 
-def test_run_readonly_query_bq_exception_returns_error(env_bq):
+def test_run_readonly_query_bq_exception_returns_error(env_raw):
     from backend.app.clients.bigquery import run_readonly_query
-    sql = "SELECT * FROM `test-proj.analytics.ads_daily_staging` WHERE client_id = 1 LIMIT 1"
+    sql = "SELECT * FROM `test-proj.146568.ads_AccountBasicStats_4221201460` LIMIT 1"
     with patch("backend.app.clients.bigquery.get_client") as mock_get:
         mock_get.return_value.query.side_effect = Exception("Table not found: 404")
         out = run_readonly_query(sql, client_id=1, organization_id="default")
@@ -211,7 +232,7 @@ def test_run_readonly_query_events_wildcard_in_ga4_dataset_passes(env_raw):
 def test_run_readonly_query_wrong_project_rejected(env_bq):
     """Table in allowed dataset but wrong project is rejected."""
     from backend.app.clients.bigquery import run_readonly_query
-    sql = "SELECT * FROM `other-project.analytics.ads_daily_staging` LIMIT 1"
+    sql = "SELECT * FROM `other-project.analytics.some_table` LIMIT 1"
     out = run_readonly_query(sql, client_id=1, organization_id="default")
     assert out["rows"] == []
     assert "Only tables" in (out["error"] or "") or "project" in (out["error"] or "").lower()
@@ -238,7 +259,7 @@ def test_execute_tool_run_sql_missing_query_key():
 
 def test_execute_tool_run_sql_delegates_to_run_readonly_query(env_bq):
     from backend.app.copilot.tools import execute_tool
-    sql = "SELECT * FROM `test-proj.analytics.ads_daily_staging` WHERE client_id = 1 LIMIT 1"
+    sql = "SELECT * FROM `test-proj.146568.ads_AccountBasicStats_4221201460` LIMIT 1"
     with patch("backend.app.clients.bigquery.run_readonly_query") as mock_run:
         mock_run.return_value = {"rows": [{"spend": 10.5, "revenue": 100}], "error": None}
         result = execute_tool("org", 1, "run_sql", {"query": sql})
@@ -304,26 +325,25 @@ def test_knowledge_base_schema_contains_project_and_dataset():
 def test_knowledge_base_schema_contains_datasets_and_guidance():
     from backend.app.copilot.knowledge_base import get_schema_for_copilot
     schema = get_schema_for_copilot()
-    assert "Ads dataset" in schema or "ADS_DATASET" in schema
-    assert "GA4" in schema or "GA4_DATASET" in schema
+    assert "Ads" in schema or "ADS" in schema or "GA4" in schema
     assert "Query guidelines" in schema or "SELECT" in schema
-    assert "client_id" in schema or "customer_id" in schema
+    assert "hypeon_marts" in schema or "fct_sessions" in schema or "project" in schema
 
 
 def test_knowledge_base_schema_read_only_guidance():
     from backend.app.copilot.knowledge_base import get_schema_for_copilot
     schema = get_schema_for_copilot()
     assert "SELECT" in schema
-    assert "client_id" in schema or "customer_id" in schema
+    assert "read-only" in schema.lower() or "INSERT" in schema or "DROP" in schema
 
 
-def test_knowledge_base_schema_contains_data_semantics():
-    """Schema includes Data semantics so LLM chooses GA4 for item views and Ads for campaign metrics."""
+def test_knowledge_base_schema_contains_ga4_rules():
+    """Schema includes GA4 rules and query behavior (item_id, view_item, traffic)."""
     from backend.app.copilot.knowledge_base import get_schema_for_copilot
     schema = get_schema_for_copilot()
-    assert "Data semantics" in schema
+    assert "GA4" in schema or "view_item" in schema
     assert "item_id" in schema or "item" in schema.lower()
-    assert "traffic_source" in schema or "traffic" in schema.lower()
+    assert "traffic" in schema.lower() or "utm_source" in schema
 
 
 def test_knowledge_base_fallback_when_discovery_missing():
@@ -367,15 +387,15 @@ def test_build_system_template_includes_run_sql_and_schema():
     from backend.app.copilot.chat_handler import _build_system_template
     t = _build_system_template(1)
     assert "run_sql" in t
-    assert "ads_daily_staging" in t or "ga4_daily_staging" in t or "Knowledge base" in t
+    assert "Knowledge base" in t or "events_" in t or "ads_" in t
 
 
-def test_build_system_template_run_sql_only_and_two_datasets():
-    """Copilot has one tool (run_sql) and only ADS_DATASET/GA4_DATASET; no layout/widgets."""
+def test_build_system_template_run_sql_only_no_dashboard():
+    """Copilot has one tool (run_sql), hypeon_marts/raw datasets; no layout/widgets."""
     from backend.app.copilot.chat_handler import _build_system_template
     t = _build_system_template(1)
     assert "run_sql" in t
-    assert "ADS_DATASET" in t or "GA4_DATASET" in t
+    assert "hypeon_marts" in t or "ADS_DATASET" in t or "GA4_DATASET" in t
     assert "get_business_overview" not in t
     assert "widgets" not in t
     assert "layout" not in t

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Check how data looks in GA4: raw events_* and ga4_daily_staging.
-Uses BQ_SOURCE_PROJECT, GA4_DATASET (raw), BQ_PROJECT, ANALYTICS_DATASET (staging), BQ_LOCATION.
+Check how data looks in GA4: raw events_* and marketing_performance_daily (channel=ga4).
+Uses BQ_SOURCE_PROJECT, GA4_DATASET (raw), BQ_PROJECT, ANALYTICS_DATASET, BQ_LOCATION.
 """
 import os
 import sys
@@ -84,7 +84,7 @@ def main():
     except Exception as e:
         print(f"Error: {e}")
 
-    # ---- 3) GA4 daily staging (what we feed into union) ----
+    # ---- 3) marketing_performance_daily (GA4 channel only) ----
     client_main = bigquery.Client(project=BQ_PROJECT, location=BQ_LOCATION)
     q_staging = f"""
     SELECT
@@ -95,23 +95,25 @@ def main():
       SUM(revenue) AS total_revenue,
       SUM(conversions) AS total_conversions,
       SUM(sessions) AS total_sessions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ga4_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'ga4'
     """
-    print("\n=== ga4_daily_staging (pipeline output) ===")
+    print("\n=== marketing_performance_daily (channel=ga4) ===")
     try:
         df3 = client_main.query(q_staging).to_dataframe()
         print(df3.to_string())
     except Exception as e:
         print(f"Error (table may not exist yet): {e}")
 
-    # ---- 4) Sample rows from ga4_daily_staging ----
+    # ---- 4) Sample rows (GA4 from unified table) ----
     q_sample = f"""
     SELECT date, channel, device, spend, revenue, conversions, sessions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ga4_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'ga4'
     ORDER BY date DESC
     LIMIT 10
     """
-    print("\n=== ga4_daily_staging sample (last 10 rows) ===")
+    print("\n=== marketing_performance_daily sample (ga4, last 10 rows) ===")
     try:
         df4 = client_main.query(q_sample).to_dataframe()
         if df4.empty:

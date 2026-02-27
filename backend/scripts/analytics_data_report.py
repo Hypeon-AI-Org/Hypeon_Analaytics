@@ -102,8 +102,8 @@ def main():
         log("No rows.")
     log()
 
-    # ----- 3) GA4 daily staging (hypeon-ai-prod) -----
-    log("## 3. GA4 daily staging (hypeon-ai-prod.analytics.ga4_daily_staging)")
+    # ----- 3) marketing_performance_daily (GA4 channel) -----
+    log("## 3. marketing_performance_daily (channel=ga4)")
     q_ga4_staging = f"""
     SELECT
       COUNT(*) AS row_count,
@@ -113,16 +113,17 @@ def main():
       SUM(revenue) AS total_revenue,
       SUM(conversions) AS total_conversions,
       SUM(sessions) AS total_sessions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ga4_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'ga4'
     """
-    r = run_query(client_app, q_ga4_staging, "ga4_staging")
+    r = run_query(client_app, q_ga4_staging, "ga4_mart")
     if isinstance(r, str):
         log(f"Error (table may not exist): {r}")
     elif r is not None:
         log(r.to_string())
         rc = int(r["row_count"].iloc[0])
         if rc == 0:
-            log("**Table exists but has no rows.**")
+            log("**No GA4 rows in unified table.**")
     else:
         log("No rows.")
     log()
@@ -153,8 +154,8 @@ def main():
         log("No rows.")
     log()
 
-    # ----- 5) Ads daily staging (hypeon-ai-prod) -----
-    log("## 5. Google Ads daily staging (hypeon-ai-prod.analytics.ads_daily_staging)")
+    # ----- 5) marketing_performance_daily (Google Ads channel) -----
+    log("## 5. marketing_performance_daily (channel=google_ads)")
     q_ads_staging = f"""
     SELECT
       COUNT(*) AS row_count,
@@ -164,21 +165,22 @@ def main():
       SUM(revenue) AS total_revenue,
       SUM(clicks) AS total_clicks,
       SUM(impressions) AS total_impressions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ads_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'google_ads'
     """
-    r = run_query(client_app, q_ads_staging, "ads_staging")
+    r = run_query(client_app, q_ads_staging, "ads_mart")
     if isinstance(r, str):
         log(f"Error (table may not exist): {r}")
     elif r is not None:
         log(r.to_string())
         rc = int(r["row_count"].iloc[0])
         if rc == 0:
-            log("**Table exists but has no rows.**")
+            log("**No Google Ads rows in unified table.**")
     else:
         log("No rows.")
     log()
 
-    # ----- 6) marketing_performance_daily (hypeon-ai-prod) -----
+    # ----- 6) marketing_performance_daily (full) (hypeon-ai-prod) -----
     log("## 6. Unified table (hypeon-ai-prod.analytics.marketing_performance_daily)")
     q_union = f"""
     SELECT
@@ -204,11 +206,12 @@ def main():
         log("No rows.")
     log()
 
-    # ----- 7) Sample rows: ga4_daily_staging -----
-    log("## 7. Sample: ga4_daily_staging (last 5 rows)")
+    # ----- 7) Sample: marketing_performance_daily (ga4) -----
+    log("## 7. Sample: marketing_performance_daily channel=ga4 (last 5 rows)")
     q_sample_ga4 = f"""
     SELECT date, channel, device, spend, revenue, conversions, sessions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ga4_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'ga4'
     ORDER BY date DESC
     LIMIT 5
     """
@@ -221,11 +224,12 @@ def main():
         log("No rows.")
     log()
 
-    # ----- 8) Sample rows: ads_daily_staging -----
-    log("## 8. Sample: ads_daily_staging (last 5 rows)")
+    # ----- 8) Sample: marketing_performance_daily (google_ads) -----
+    log("## 8. Sample: marketing_performance_daily channel=google_ads (last 5 rows)")
     q_sample_ads = f"""
     SELECT client_id, date, channel, spend, revenue, clicks, conversions
-    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.ads_daily_staging`
+    FROM `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
+    WHERE channel = 'google_ads'
     ORDER BY date DESC
     LIMIT 5
     """
@@ -278,8 +282,7 @@ def main():
     log("Review the sections above. In general:")
     log("- **If raw GA4 events_* has 0 or very few events:** GA4 pipeline has little to work with; consider enabling GA4 export to BigQuery and ensuring the property receives traffic.")
     log("- **If raw Google Ads table has 0 rows:** Ads export to BigQuery may not be set up or linked; configure Google Ads to BigQuery export.")
-    log("- **If ga4_daily_staging or ads_daily_staging are empty:** Run the unified pipeline (run_unified_table.py) after raw data exists; staging is populated by the SQL jobs.")
-    log("- **If marketing_performance_daily is empty:** Run the union step (run_unified_table.py) so staging tables are combined; dashboard and Copilot depend on this table.")
+    log("- **If marketing_performance_daily is empty or missing rows by channel:** Run the unified pipeline (run_unified_table.py) so the table is built from your data; dashboard and Copilot depend on this table.")
     log("- **hypeon-ai-prod.analytics** holds the application tables; all staging and unified tables should live here when the pipeline runs against BQ_PROJECT=hypeon-ai-prod.")
     log()
 

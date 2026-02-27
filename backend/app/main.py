@@ -48,7 +48,7 @@ from .copilot_synthesizer import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """On startup: wire Claude (if ANTHROPIC_API_KEY) or Gemini for Copilot; run refresh_analytics_cache (mandatory). Health blocks until cache ready."""
+    """On startup: wire Claude or Gemini for Copilot. No analytics cache; Copilot queries hypeon_marts directly."""
     try:
         import os
         _has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
         from .llm_gemini import is_gemini_configured, make_gemini_copilot_client
         if is_claude_configured():
             set_llm_client(make_claude_copilot_client())
-            logger.info("Copilot LLM: Claude (ANTHROPIC_API_KEY)%s", " | Gemini as fallback" if is_gemini_configured() else "")
+            logger.info("Copilot LLM: Claude%s", " | Gemini as fallback" if is_gemini_configured() else "")
         elif is_gemini_configured():
             set_llm_client(make_gemini_copilot_client())
             logger.info("Copilot LLM: Gemini")
@@ -66,18 +66,9 @@ async def lifespan(app: FastAPI):
             logger.warning("Copilot: no LLM configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY for chat.")
     except Exception as e:
         logger.warning("Copilot LLM setup failed: %s", e, exc_info=True)
-    # Set default GCP project for ADC so "No project ID" warning is avoided
     import os
     if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
         os.environ["GOOGLE_CLOUD_PROJECT"] = get_bq_project()
-    # Mandatory: warm analytics cache on startup; health check blocks API until cache ready
-    from .refresh_analytics_cache import do_refresh
-    logger.info("Refreshing analytics cache (org=default, client_id=1)...")
-    refresh_result = do_refresh(organization_id="default", client_id=1)
-    if refresh_result.get("error"):
-        logger.warning("Cache refresh had errors: %s", refresh_result.get("error"))
-    else:
-        logger.info("Cache ready. Updated: %s", refresh_result.get("updated", []))
     logger.info("Request logging active: every API request will be logged (METHOD path -> status | duration)")
     yield
 
@@ -124,17 +115,9 @@ def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(CORSMiddleware, allow_origins=get_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# Cache-ready: block dashboard and /health until cache is ready (503)
-from .middleware.cache_ready import CacheReadyMiddleware
-app.add_middleware(CacheReadyMiddleware)
-
 # Copilot rate limit: 20 req/min per user
 from .middleware.rate_limit import CopilotRateLimitMiddleware
 app.add_middleware(CopilotRateLimitMiddleware)
-
-# Record dashboard API latency for /health/analytics
-from .middleware.latency import DashboardLatencyMiddleware
-app.add_middleware(DashboardLatencyMiddleware)
 
 # Request logging: outermost so every API request is logged (method, path, status, duration)
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -163,13 +146,12 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestLogMiddleware)
 
-# Dashboard API (reads from analytics cache only; <300ms target)
-from .api.dashboard import router as dashboard_router
-app.include_router(dashboard_router, prefix="/api/v1")
-
-# Analysis API (queries raw staging tables in BigQuery for in-depth breakdowns)
-from .api.analysis import router as analysis_router
-app.include_router(analysis_router, prefix="/api/v1")
+# Analysis API (queries BigQuery for in-depth breakdowns; optional)
+try:
+    from .api.analysis import router as analysis_router
+    app.include_router(analysis_router, prefix="/api/v1")
+except ImportError:
+    pass
 
 
 # ----- Auth and tenant context (must be before routes that use them) -----
@@ -197,19 +179,6 @@ def require_role(*allowed: str):
             raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "Insufficient role"})
         return role
     return dep
-
-
-@app.post("/api/v1/admin/refresh-cache")
-def admin_refresh_cache(
-    request: Request,
-    _role: str = Depends(require_role("admin")),
-):
-    """Refresh analytics cache from BQ. Used by DAG or manual trigger. Requires admin."""
-    org = get_organization_id(request)
-    logger.info("Admin refresh-cache | org=%s", org)
-    from .refresh_analytics_cache import do_refresh
-    result = do_refresh(organization_id=org, client_id=1)
-    return result
 
 
 # ----- Structured error -----
@@ -449,12 +418,12 @@ def copilot_chat(
         msg = (body.message or "").strip()
         sid = body.session_id or str(uuid.uuid4())
         if not msg:
-            return {"text": "Please type a message to get a response.", "session_id": sid}
+            return {"answer": "Please type a message to get a response.", "data": [], "text": "Please type a message to get a response.", "session_id": sid}
         out = chat(org, msg, session_id=sid, client_id=body.client_id)
-        # Last-resort: never send the raw LLM error to the client
-        text = (out.get("text") or "").strip()
+        text = (out.get("text") or out.get("answer") or "").strip()
         if text and ("couldn't complete" in text.lower() or "couldnt complete" in text.lower()):
-            out = {**out, "text": "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary."}
+            fallback = "I'm having trouble right now. Please try again in a moment, or ask something like \"Views count of item FT05B from Google\"."
+            out = {**out, "text": fallback, "answer": fallback, "data": out.get("data") or []}
         return out
     except Exception as e:
         logger.exception(
@@ -464,11 +433,15 @@ def copilot_chat(
         msg = (body.message or "").strip().lower()
         if msg in ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo"):
             return {
-                "text": "Hi! How can I help with your marketing analytics today? You can ask for a performance summary, top campaigns, funnel metrics, or anything else.",
+                "answer": "Hi! How can I help with your marketing analytics today? Ask about views, campaigns, traffic, or item performance.",
+                "data": [],
+                "text": "Hi! How can I help with your marketing analytics today? Ask about views, campaigns, traffic, or item performance.",
                 "session_id": body.session_id or "",
             }
         return {
-            "text": "I'm having trouble right now. Please try again in a moment, or ask something like \"What should I do today?\" for a performance summary. If this keeps happening, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set.",
+            "answer": "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". Check ANTHROPIC_API_KEY or GEMINI_API_KEY if this persists.",
+            "data": [],
+            "text": "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". Check ANTHROPIC_API_KEY or GEMINI_API_KEY if this persists.",
             "session_id": body.session_id or "",
         }
 
@@ -502,35 +475,8 @@ def copilot_sessions(
 
 @app.get("/health")
 def health():
-    """Liveness: 503 until cache ready (middleware). Once ready, returns ok."""
-    from .analytics_cache import get_cache_ready
-    if not get_cache_ready():
-        raise HTTPException(503, detail={"code": "CACHE_NOT_READY", "message": "Analytics cache not ready"})
+    """Liveness. Copilot queries hypeon_marts directly; no cache dependency."""
     return {"status": "ok"}
-
-
-@app.get("/health/analytics")
-def health_analytics():
-    """Observability: cache_last_refresh, cache_status, cache_age_seconds, cache_stale, latency_avg."""
-    from .analytics_cache import (
-        get_cache_ready,
-        get_cache_last_refresh,
-        get_cache_age_seconds,
-        is_cache_stale,
-        get_latency_avg_ms,
-    )
-    ready = get_cache_ready()
-    last_refresh = get_cache_last_refresh()
-    age_sec = get_cache_age_seconds()
-    stale = is_cache_stale()
-    latency_avg = get_latency_avg_ms()
-    return {
-        "cache_status": "ready" if ready else "empty",
-        "cache_last_refresh": last_refresh,
-        "cache_age_seconds": round(age_sec, 1) if age_sec is not None else None,
-        "cache_stale": stale,
-        "latency_avg_ms": round(latency_avg, 2) if latency_avg is not None else None,
-    }
 
 
 # Backward-compat alias

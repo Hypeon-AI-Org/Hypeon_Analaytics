@@ -19,6 +19,21 @@ def get_analytics_dataset() -> str:
     return os.environ.get("ANALYTICS_DATASET", "analytics")
 
 
+def get_marts_dataset() -> str:
+    """Dataset for marts layer (hypeon_marts). Copilot queries this."""
+    return os.environ.get("MARTS_DATASET", "hypeon_marts")
+
+
+def get_ads_dataset() -> str:
+    """From .env ADS_DATASET (e.g. 146568). Never delete this dataset."""
+    return os.environ.get("ADS_DATASET", "146568")
+
+
+def get_ga4_dataset() -> str:
+    """From .env GA4_DATASET (e.g. analytics_444259275). Never delete this dataset."""
+    return os.environ.get("GA4_DATASET", "analytics_444259275")
+
+
 def get_jwt_secret() -> str:
     return os.environ.get("JWT_SECRET", "")
 

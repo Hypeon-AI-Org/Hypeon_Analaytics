@@ -42,6 +42,16 @@ def get_ga4_dataset() -> str:
     return os.environ.get("GA4_DATASET", "analytics_444259275")
 
 
+def get_marts_dataset() -> str:
+    """Marts dataset (hypeon_marts, europe-north2). Copilot primary schema and queries."""
+    return os.environ.get("MARTS_DATASET", "hypeon_marts")
+
+
+def get_marts_ads_dataset() -> str:
+    """Ads marts dataset (hypeon_marts_ads, EU). For fct_ad_spend."""
+    return os.environ.get("MARTS_ADS_DATASET", "hypeon_marts_ads")
+
+
 def _project() -> str:
     return os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
 
@@ -51,12 +61,14 @@ def _source_project() -> str:
     return os.environ.get("BQ_SOURCE_PROJECT") or _project()
 
 
-# Copilot run_sql: allow any table in ADS_DATASET and GA4_DATASET only (raw datasets from .env)
+# Copilot run_sql: allow hypeon_marts, hypeon_marts_ads, and raw ADS_DATASET, GA4_DATASET from .env (never delete those)
 def _copilot_allowed_datasets() -> frozenset[str]:
-    """Return set of dataset IDs (lower) allowed for run_sql. Any table in these datasets is allowed."""
+    """Return set of dataset IDs (lower) allowed for run_sql."""
+    marts = get_marts_dataset().strip().lower()
+    marts_ads = get_marts_ads_dataset().strip().lower()
     ads_ds = get_ads_dataset().strip().lower()
     ga4_ds = get_ga4_dataset().strip().lower()
-    return frozenset({ads_ds, ga4_ds})
+    return frozenset({marts, marts_ads, ads_ds, ga4_ds})
 
 
 def run_readonly_query(
@@ -102,7 +114,7 @@ def run_readonly_query(
             continue
         ref_project, ref_dataset, table_part = parts
         if ref_dataset not in allowed_datasets:
-            return {"rows": [], "error": f"Dataset not allowed for Copilot: {ref_dataset}. Only ADS_DATASET and GA4_DATASET are allowed (see .env)."}
+            return {"rows": [], "error": f"Dataset not allowed for Copilot: {ref_dataset}. Allowed: hypeon_marts, ADS_DATASET, GA4_DATASET (see .env)."}
         if ref_project not in (project, source_project):
             return {"rows": [], "error": f"Only tables in project {_project()} or {_source_project()} are allowed."}
 
@@ -124,6 +136,32 @@ def run_readonly_query(
         return {"rows": rows, "error": None}
     except Exception as e:
         return {"rows": [], "error": str(e)[:300]}
+
+
+def get_marts_schema_live() -> list[dict] | None:
+    """
+    Fetch live schema from hypeon_marts and hypeon_marts_ads for Copilot.
+    Returns list of {"table_name": str, "column_name": str} or None on error.
+    """
+    project = _project()
+    marts = get_marts_dataset()
+    marts_ads = get_marts_ads_dataset()
+    out: list[dict] = []
+    location = os.environ.get("BQ_LOCATION", "europe-north2")
+    location_ads = os.environ.get("BQ_LOCATION_ADS", "EU")
+    try:
+        from google.cloud import bigquery
+        for ds, loc in [(marts, location), (marts_ads, location_ads)]:
+            client = bigquery.Client(project=project, location=loc)
+            q = f"SELECT table_name, column_name FROM `{project}.{ds}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name, ordinal_position"
+            df = client.query(q).to_dataframe()
+            if not df.empty:
+                for r in df.to_dict("records"):
+                    r["dataset"] = ds
+                    out.append(r)
+        return out if out else None
+    except Exception:
+        return None
 
 
 # GA4 events that represent a product/item view (for get_item_views_count)
@@ -202,17 +240,18 @@ def load_ads_staging(
     end_date: date,
     organization_id: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Load raw Google Ads data from ads_daily_staging (dataset from ADS_DATASET)."""
+    """Load Google Ads data from marketing_performance_daily (channel = google_ads)."""
     client = get_client()
-    dataset = get_ads_dataset()
+    dataset = get_analytics_dataset()
     project = _project()
     query = f"""
     SELECT client_id, date, campaign_id, ad_group_id, device,
-           spend, clicks, impressions, conversions, revenue
-    FROM `{project}.{dataset}.ads_daily_staging`
+           spend, clicks, impressions, conversions, revenue, sessions
+    FROM `{project}.{dataset}.marketing_performance_daily`
     WHERE client_id = {client_id}
       AND date >= '{start_date.isoformat()}'
       AND date <= '{end_date.isoformat()}'
+      AND channel = 'google_ads'
     ORDER BY date
     """
     return client.query(query).to_dataframe()
@@ -224,17 +263,18 @@ def load_ga4_staging(
     end_date: date,
     organization_id: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Load raw GA4 data from ga4_daily_staging (dataset from GA4_DATASET)."""
+    """Load GA4 data from marketing_performance_daily (channel = ga4)."""
     client = get_client()
-    dataset = get_ga4_dataset()
+    dataset = get_analytics_dataset()
     project = _project()
     query = f"""
-    SELECT client_id, date, device,
-           sessions, conversions, revenue
-    FROM `{project}.{dataset}.ga4_daily_staging`
+    SELECT client_id, date, campaign_id, ad_group_id, device,
+           spend, clicks, impressions, conversions, revenue, sessions
+    FROM `{project}.{dataset}.marketing_performance_daily`
     WHERE client_id = {client_id}
       AND date >= '{start_date.isoformat()}'
       AND date <= '{end_date.isoformat()}'
+      AND channel = 'ga4'
     ORDER BY date
     """
     return client.query(query).to_dataframe()

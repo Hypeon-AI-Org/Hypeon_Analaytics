@@ -1,6 +1,6 @@
--- Union staging tables and build final marketing_performance_daily (run in europe-north2).
--- Reads: BQ_PROJECT.ANALYTICS_DATASET.ads_daily_staging, ga4_daily_staging (both in same region).
--- Substitutes: BQ_PROJECT, ANALYTICS_DATASET
+-- Build marketing_performance_daily from unified pipeline (run in europe-north2).
+-- Source: build from raw Ads/GA4 or from intermediate tables; substitute BQ_PROJECT, ANALYTICS_DATASET.
+-- (Legacy: if you still have ads_daily_staging and ga4_daily_staging, the UNION below uses them.)
 
 CREATE OR REPLACE TABLE `{BQ_PROJECT}.{ANALYTICS_DATASET}.marketing_performance_daily`
 PARTITION BY date
