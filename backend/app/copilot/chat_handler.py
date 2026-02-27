@@ -1,6 +1,6 @@
 """
-Copilot chat handler: User question -> Schema injection -> LLM SQL -> Validation -> BigQuery -> Answer + data.
-Single tool: run_sql. Queries hypeon_marts (and allowed raw ADS_DATASET/GA4_DATASET). Response format: { answer, data }.
+Copilot chat handler: User question -> Dynamic schema (marts only) -> LLM SQL -> Validation -> BigQuery -> Answer + data.
+Single tool: run_sql. ONLY hypeon_marts.fct_sessions and hypeon_marts_ads.fct_ad_spend. No staging/cache/raw. Response: { answer, data }.
 """
 from __future__ import annotations
 
@@ -16,23 +16,25 @@ logger = logging.getLogger(__name__)
 
 
 def _build_system_template(client_id: int) -> str:
-    """Build system prompt with live schema; run_sql queries hypeon_marts (and allowed raw datasets)."""
+    """Build system prompt with dynamic marts schema only. No raw/staging/cache."""
     schema = get_schema_for_copilot()
-    return f"""You are an expert marketing analytics assistant. Answer using data from the allowed BigQuery datasets (hypeon_marts primary; ADS_DATASET and GA4_DATASET when needed). Do not query other tables or datasets.
+    return f"""You are an expert marketing analytics assistant. You may query ONLY these tables: hypeon_marts.fct_sessions and hypeon_marts_ads.fct_ad_spend. Do NOT reference ads_daily_staging, ga4_daily_staging, analytics_cache, decision_store, or any raw/staging tables.
 
-## Knowledge base (database schema, live from hypeon_marts when available)
+## Knowledge base (live schema from hypeon_marts and hypeon_marts_ads only)
 {schema}
 
 ## Tool
-You have one tool: **run_sql**. For any data question, generate a single SELECT (or WITH ... SELECT) and call run_sql. Prefer hypeon_marts tables (fct_sessions, fct_ad_spend). For item views use fct_sessions with event_name IN ('view_item','view_item_list') and item_id; or raw GA4 events_* with UNNEST(COALESCE(items,[])) AS item and item.item_id. Use backtick-quoted table names. For Ads filter by customer_id = {client_id} when relevant. Always filter by date/event_date to limit scan.
+You have one tool: **run_sql**. Generate a single SELECT (or WITH ... SELECT) and call run_sql. Use ONLY tables that appear in the schema above (fct_sessions for events/views/traffic, fct_ad_spend for ad spend/channels). For item views use fct_sessions with event_name IN ('view_item','view_item_list') and item_id (e.g. STARTS_WITH(item_id, 'FT05B') for FT05B). For traffic source use utm_source (e.g. LIKE '%google%'). Use backtick-quoted names. Filter by date when relevant. For fct_ad_spend filter by client/customer when column exists (client_id = {client_id}).
 
 Call run_sql when the user needs data. Do not call it for greetings or thanks.
 
+## Unavailable channel (e.g. Facebook)
+If the user asks for a channel (e.g. Facebook) that is not in the data, respond with: "[Channel] channel data is not currently present in the dataset. Available channels: google_ads. Once [Channel] data is integrated, this query will be supported." Do NOT mention staging, raw tables, or analytics_cache.
+
 ## Answering
 - Base answers only on tool results. Never invent metrics.
-- Be clear and concise. If tool returns rows, summarize in a short answer; the raw data is also returned to the user.
-- If tools return no data or error, say so and suggest what to ask next. Do not make up numbers.
-- Do not use emojis. Plain text only. Response must be answer + optional data (no charts/funnels/cards)."""
+- If tool returns no data or error, say so. Do not make up numbers.
+- Response: answer text + optional data. No charts, funnels, or KPI cards."""
 
 
 def chat(
@@ -211,7 +213,7 @@ def chat(
         final_text = (reply_text or "").strip() or "I couldn't generate a reply."
         if _is_error_response({"text": final_text}):
             if _is_simple_greeting(message):
-                final_text = "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets—for example totals, breakdowns by date or campaign, or item view counts."
+                final_text = "Hi! How can I help with your marketing analytics today? You can ask about sessions, item views, traffic (e.g. from Google), or ad spend by channel."
             else:
                 final_text = (
                     "I'm having trouble right now. Please try again in a moment, "
@@ -223,7 +225,7 @@ def chat(
         if is_error:
             logger.info("Copilot: replacing LLM error response with friendly fallback (user msg=%s)", message[:50] if message else "")
             if _is_simple_greeting(message):
-                final_text = "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets."
+                final_text = "Hi! How can I help with your marketing analytics today? Ask about sessions, item views, traffic, or ad spend."
             else:
                 final_text = (
                     "I'm having trouble right now. Please try again in a moment, "
@@ -248,7 +250,7 @@ def chat(
         logger.info("Copilot traceback:\n%s", traceback.format_exc())
         msg_for_greeting = (message or "").strip().lower()
         if msg_for_greeting in ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo") or msg_for_greeting.rstrip("!?.") in ("hi", "hello", "hey"):
-            return {"answer": "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets.", "data": [], "text": "Hi! How can I help with your marketing analytics today? You can ask about data in the Ads and GA4 datasets.", "session_id": sid}
+            return {"answer": "Hi! How can I help with your marketing analytics today? Ask about sessions, item views, traffic, or ad spend.", "data": [], "text": "Hi! How can I help with your marketing analytics today? Ask about sessions, item views, traffic, or ad spend.", "session_id": sid}
         err_preview = str(e)[:150].replace("\n", " ")
         return {
             "answer": f"I ran into a problem ({err_preview}). Please try again in a moment.",

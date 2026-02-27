@@ -1,6 +1,6 @@
 """
-Copilot tools: single tool (run_sql) for on-demand data fetch from ADS_DATASET and GA4_DATASET only.
-LLM calls run_sql when needed; executor runs BigQuery and returns JSON.
+Copilot tools: single tool (run_sql) for on-demand data from hypeon_marts and hypeon_marts_ads only.
+No staging, cache, or raw datasets.
 """
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ import json
 import math
 from typing import Any, Optional
 
-# Universal tool: run_sql. LLM generates the SQL from the user query and knowledge-base schema; only ADS_DATASET and GA4_DATASET.
+# run_sql: ONLY hypeon_marts.fct_sessions and hypeon_marts_ads.fct_ad_spend. No fallback.
 COPILOT_TOOLS = [
     {
         "name": "run_sql",
-        "description": "Universal tool to fetch any data from the allowed datasets. Generate a single SELECT (or WITH ... SELECT) query from the user's question and the schema in the knowledge base. Only tables in ADS_DATASET and GA4_DATASET are allowed; use backtick-quoted table names (e.g. `project.dataset.events_*`). Returns JSON with 'rows' and optional 'error'. Use for every data question: totals, breakdowns by date/device/campaign, item view counts (GA4: event_name IN ('view_item','view_item_list'), UNNEST(COALESCE(items,[])) with item_id), event counts, or any other analysis. Scope Ads by customer_id; limit GA4 scans with event_date filters.",
+        "description": "Run a single SELECT (or WITH ... SELECT) against hypeon_marts or hypeon_marts_ads only. Allowed tables: hypeon_marts.fct_sessions (events, item_id, utm_source), hypeon_marts_ads.fct_ad_spend (channel, cost, clicks). Use backtick-quoted names: `project.hypeon_marts.fct_sessions`, `project.hypeon_marts_ads.fct_ad_spend`. Returns JSON with 'rows' and optional 'error'. Do NOT reference ads_daily_staging, ga4_daily_staging, or raw datasets.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "A single SELECT (or WITH ... SELECT) SQL query. Use backtick-quoted table names: `project.dataset.table`. Scope by client_id/customer_id and date as needed.",
+                    "description": "A single SELECT SQL query. Only tables from the injected schema (hypeon_marts, hypeon_marts_ads) are allowed.",
                 },
             },
             "required": ["query"],
@@ -50,8 +50,7 @@ def execute_tool(
     arguments: Optional[dict] = None,
 ) -> str:
     """
-    Execute a Copilot tool and return JSON string result.
-    Only run_sql is supported; it queries ADS_DATASET and GA4_DATASET only.
+    Execute a Copilot tool. Only run_sql; it queries hypeon_marts and hypeon_marts_ads only. No fallback.
     """
     args = _normalize_tool_arguments(arguments)
     cid = int(client_id) if client_id is not None else 1

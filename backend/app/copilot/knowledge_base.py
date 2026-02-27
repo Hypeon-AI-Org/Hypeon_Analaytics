@@ -1,6 +1,6 @@
 """
-Knowledge base for Copilot: live schema from hypeon_marts.INFORMATION_SCHEMA (primary);
-fallback to bigquery_schema/bigquery_discovery.json for raw ADS_DATASET/GA4_DATASET.
+Knowledge base for Copilot: schema ONLY from hypeon_marts and hypeon_marts_ads INFORMATION_SCHEMA.
+No static table names. No fallback to discovery or raw datasets. If schema fetch fails, return error.
 """
 from __future__ import annotations
 
@@ -135,135 +135,65 @@ def _format_live_marts_schema(rows: list[dict], project: str, marts: str) -> str
 
 def get_schema_for_copilot(use_cache: bool = True) -> str:
     """
-    Return schema for the LLM: live from hypeon_marts.INFORMATION_SCHEMA.COLUMNS when available;
-    otherwise from bigquery_discovery.json (ADS_DATASET, GA4_DATASET). Includes GA4 rules and query behavior.
+    Schema ONLY from hypeon_marts and hypeon_marts_ads INFORMATION_SCHEMA (dynamic).
+    No fallback. If fetch fails, return explicit error so the assistant tells the user.
     """
     global _SCHEMA_CACHE
     if use_cache and _SCHEMA_CACHE is not None:
         return _SCHEMA_CACHE
     project = get_bq_project()
-    source_project = get_bq_source_project()
-    ads_ds = get_ads_dataset().strip()
-    ga4_ds = get_ga4_dataset().strip()
     marts_ds = get_marts_dataset().strip()
+    marts_ads_ds = os.environ.get("MARTS_ADS_DATASET", "hypeon_marts_ads").strip()
 
-    # Prefer live marts schema
     try:
         from ..clients.bigquery import get_marts_schema_live
         live_rows = get_marts_schema_live()
-        if live_rows:
-            schema_text = _format_live_marts_schema(live_rows, project, marts_ds)
-            schema_text += _ga4_and_query_rules(project, marts_ds, source_project, ga4_ds, ads_ds)
-            _SCHEMA_CACHE = schema_text
-            return schema_text
-    except Exception:
-        pass
-
-    # Fallback: discovery file for raw datasets
-    allowed_dataset_ids = {ads_ds.lower(), ga4_ds.lower(), marts_ds.lower()}
-    discovery_path = _discovery_path()
-    if not discovery_path.is_file():
-        fallback = _fallback_schema(project, source_project, ads_ds, ga4_ds, reason="Discovery file not found.")
-        fallback += _ga4_and_query_rules(project, marts_ds, source_project, ga4_ds, ads_ds)
-        _SCHEMA_CACHE = fallback
-        return fallback
-
-    try:
-        raw = discovery_path.read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except (json.JSONDecodeError, OSError) as e:
-        fallback = _fallback_schema(project, source_project, ads_ds, ga4_ds, reason=f"Discovery load error: {e!s}.")
-        fallback += _ga4_and_query_rules(project, marts_ds, source_project, ga4_ds, ads_ds)
-        _SCHEMA_CACHE = fallback
-        return fallback
-
-    datasets = data.get("datasets") or {}
-    if not isinstance(datasets, dict):
-        fallback = _fallback_schema(project, source_project, ads_ds, ga4_ds, reason="Invalid discovery.")
-        fallback += _ga4_and_query_rules(project, marts_ds, source_project, ga4_ds, ads_ds)
-        _SCHEMA_CACHE = fallback
-        return fallback
-
-    parts = [
-        "## Database: BigQuery (read-only)",
-        f"- Project: {project}. Marts: {marts_ds}. Ads: {ads_ds}. GA4: {ga4_ds}.",
-        "- Use backtick-quoted full names: `project.dataset.table`.",
-        "",
-        "## Tables and columns (from discovery)",
-        "",
-    ]
-    total_len = sum(len(p) for p in parts)
-    for ds_id, ds_info in sorted(datasets.items()):
-        if ds_id.strip().lower() not in allowed_dataset_ids:
-            continue
-        if not isinstance(ds_info, dict):
-            continue
-        tables = ds_info.get("tables") or {}
-        if not isinstance(tables, dict):
-            continue
-        parts.append(f"### Dataset: {ds_id}\n")
-        for table_id, tbl in sorted(tables.items()):
-            if total_len >= _SCHEMA_MAX_CHARS:
-                parts.append("... (truncated)")
-                break
-            if not isinstance(tbl, dict):
-                continue
-            schema_list = tbl.get("schema")
-            if not schema_list and "error" in tbl:
-                parts.append(f"- **{table_id}**: (error)")
-                continue
-            flat = _flatten_schema(schema_list) if schema_list else []
-            col_lines = [f"  - {name}: {typ}" for name, typ in flat[:80]]
-            if len(flat) > 80:
-                col_lines.append(f"  - ... +{len(flat) - 80} more")
-            parts.append(f"- **{table_id}**\n" + "\n".join(col_lines) + "\n")
-            total_len += len(parts[-1])
-        if total_len >= _SCHEMA_MAX_CHARS:
-            break
-    schema_text = "\n".join(parts) + _ga4_and_query_rules(project, marts_ds, source_project, ga4_ds, ads_ds)
-    samples_section = _load_samples_section()
-    if samples_section and len(schema_text) + len(samples_section) < _SCHEMA_MAX_CHARS:
-        schema_text = schema_text + samples_section
-    _SCHEMA_CACHE = schema_text
-    return schema_text
+        if not live_rows:
+            err = _schema_error_message("Marts schema returned no tables. Ensure hypeon_marts and hypeon_marts_ads exist and have fct_sessions, fct_ad_spend.")
+            _SCHEMA_CACHE = err
+            return err
+        schema_text = _format_live_marts_schema(live_rows, project, marts_ds)
+        schema_text += _marts_only_rules(project, marts_ds, marts_ads_ds)
+        _SCHEMA_CACHE = schema_text
+        return schema_text
+    except Exception as e:
+        err = _schema_error_message(f"Could not load marts schema: {str(e)[:200]}. Copilot uses only hypeon_marts and hypeon_marts_ads.")
+        _SCHEMA_CACHE = err
+        return err
 
 
-def _ga4_and_query_rules(project: str, marts: str, source_project: str, ga4_ds: str, ads_ds: str) -> str:
-    """GA4 rules and query behavior for Copilot (system knowledge)."""
-    return f"""
-
-## GA4 rules (mandatory)
-- GA4 uses nested schema. Product data lives in UNNEST(items) AS item; item_id = item.item_id.
-- Views = event_name = 'view_item' (or 'view_item_list'). Clicks = event_name = 'select_item'. Purchase = event_name = 'purchase'.
-- Traffic source = traffic_source.source (e.g. utm_source in marts). For "from Google" use utm_source LIKE '%google%' or LOWER(utm_source) = 'google'.
-- If you reference item_id in a query and the table is GA4 raw events_*, you MUST use UNNEST(COALESCE(items, [])) AS item and item.item_id. Never use item_id without UNNEST(items) on raw GA4.
-
-## Query behavior (user intent -> SQL)
-| User intent       | SQL behavior |
-| views             | event_name='view_item' (or view_item_list) |
-| clicks            | event_name='select_item' |
-| purchase          | event_name='purchase' |
-| item prefix       | item_id LIKE 'XXX%' or STARTS_WITH(item_id, 'XXX') |
-| google traffic    | utm_source LIKE '%google%' |
-- Prefer hypeon_marts.fct_sessions and hypeon_marts.fct_ad_spend for analytics. Use `{project}.{marts}.table_name`.
-
-## Query guidelines
-- Use only SELECT (or WITH ... SELECT). No INSERT/UPDATE/DELETE/DROP.
-- Table names: backtick-quoted. For marts: `{project}.{marts}.fct_sessions`, `{project}.{marts}.fct_ad_spend`, etc.
-- Filter by event_date or date when relevant to limit scan.
+def _schema_error_message(detail: str) -> str:
+    """When schema fetch fails, return instructions so the assistant responds with a clear error."""
+    return f"""## Database schema unavailable
+- {detail}
+- Do NOT use ads_daily_staging, ga4_daily_staging, analytics_cache, decision_store, or raw datasets.
+- Tell the user: "The analytics schema could not be loaded. Please try again later or contact support."
 """
 
 
-def _fallback_schema(project: str, source_project: str, ads_ds: str, ga4_ds: str, reason: str) -> str:
-    """Short fallback when discovery is unavailable."""
-    return f"""## Database: BigQuery (read-only for Copilot)
-- Project: {project}. Source project (GA4 raw): {source_project}.
-- Ads dataset (ADS_DATASET): {ads_ds}. GA4 dataset (GA4_DATASET): {ga4_ds}.
-- {reason}
-- You may query any table in these two datasets. Use backtick-quoted names: `project.dataset.table`. For GA4 events use `{source_project}.{ga4_ds}.events_*`.
-- Always use SELECT only. Scope by client_id/customer_id when the column exists; for events_* filter by event_date and event_name/items.
-## Data semantics
-- Item ID / product views: GA4 events_* only. Use event_name IN ('view_item','view_item_list'), UNNEST(COALESCE(items,[])) AS it, it.item_id. Not in Ads (campaign_id/ad_group_id are not item IDs).
-- Traffic source (from Google etc.): GA4 traffic_source.source; filter with LOWER(traffic_source.source) LIKE '%google%'.
-- Campaign/ad spend and ROAS: Ads dataset (ads_*), not GA4.
+def _marts_only_rules(project: str, marts: str, marts_ads: str) -> str:
+    """Rules for Copilot: ONLY fct_sessions and fct_ad_spend. Channel error message."""
+    return f"""
+
+## Allowed tables only
+- **hypeon_marts.fct_sessions** — event/session/product views (event_name, item_id, utm_source, device).
+- **hypeon_marts_ads.fct_ad_spend** — ad performance (channel, cost, clicks, conversions). Use for campaign/channel questions.
+- Do NOT reference ads_daily_staging, ga4_daily_staging, analytics_cache, decision_store, or raw datasets.
+
+## Query behavior (user intent -> SQL)
+| User intent       | SQL behavior |
+| views / item views| event_name IN ('view_item','view_item_list'), item_id LIKE 'prefix%' in fct_sessions |
+| google traffic    | utm_source LIKE '%google%' in fct_sessions |
+| channel / ad spend| Query fct_ad_spend; filter by channel. |
+
+## Unavailable channel (e.g. Facebook)
+- If the user asks for a channel (e.g. "views from Facebook", "Facebook traffic") that is NOT in the data:
+  - First check: SELECT DISTINCT channel FROM `{project}.{marts_ads}.fct_ad_spend` (or from schema: channel column).
+  - If the requested channel (e.g. facebook) is not present, respond with exactly:
+    "[Channel] channel data is not currently present in the dataset. Available channels: google_ads. Once [Channel] data is integrated, this query will be supported."
+  - Do NOT mention staging tables, raw tables, or analytics_cache.
+
+## Query guidelines
+- Use only SELECT. Table names: `{project}.{marts}.fct_sessions`, `{project}.{marts_ads}.fct_ad_spend`.
+- Filter by date when relevant.
 """

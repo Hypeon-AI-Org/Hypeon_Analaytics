@@ -61,14 +61,26 @@ def _source_project() -> str:
     return os.environ.get("BQ_SOURCE_PROJECT") or _project()
 
 
-# Copilot run_sql: allow hypeon_marts, hypeon_marts_ads, and raw ADS_DATASET, GA4_DATASET from .env (never delete those)
+# Copilot run_sql: ONLY hypeon_marts and hypeon_marts_ads. No raw/staging. No fallback.
 def _copilot_allowed_datasets() -> frozenset[str]:
-    """Return set of dataset IDs (lower) allowed for run_sql."""
+    """Only marts datasets allowed. No ads_daily_staging, ga4_daily_staging, analytics_cache, raw."""
     marts = get_marts_dataset().strip().lower()
     marts_ads = get_marts_ads_dataset().strip().lower()
-    ads_ds = get_ads_dataset().strip().lower()
-    ga4_ds = get_ga4_dataset().strip().lower()
-    return frozenset({marts, marts_ads, ads_ds, ga4_ds})
+    return frozenset({marts, marts_ads})
+
+
+def _copilot_allowed_tables() -> frozenset[tuple[str, str]] | None:
+    """Set of (dataset, table_name) from marts INFORMATION_SCHEMA. None if schema fetch fails."""
+    rows = get_marts_schema_live()
+    if not rows:
+        return None
+    out: set[tuple[str, str]] = set()
+    for r in rows:
+        ds = (r.get("dataset") or "").strip().lower()
+        tn = (r.get("table_name") or "").strip().lower()
+        if ds and tn:
+            out.add((ds, tn))
+    return frozenset(out) if out else None
 
 
 def run_readonly_query(
@@ -103,9 +115,11 @@ def run_readonly_query(
             return {"rows": [], "error": f"Only read-only SELECT is allowed (no {verb})."}
 
     project = _project().lower()
-    source_project = _source_project().lower()
     allowed_datasets = _copilot_allowed_datasets()
-    # Match backtick-quoted identifiers: `project.dataset.table`
+    # Runtime validation: only tables that exist in marts INFORMATION_SCHEMA
+    allowed_tables = _copilot_allowed_tables()
+    if allowed_tables is None:
+        return {"rows": [], "error": "Could not load marts schema. Copilot uses only hypeon_marts and hypeon_marts_ads."}
     pattern = r"`([^`]+)`"
     for match in re.finditer(pattern, sql):
         ref = match.group(1).strip().lower()
@@ -113,10 +127,12 @@ def run_readonly_query(
         if len(parts) != 3:
             continue
         ref_project, ref_dataset, table_part = parts
+        if ref_project != project:
+            return {"rows": [], "error": f"Only tables in project {_project()} are allowed."}
         if ref_dataset not in allowed_datasets:
-            return {"rows": [], "error": f"Dataset not allowed for Copilot: {ref_dataset}. Allowed: hypeon_marts, ADS_DATASET, GA4_DATASET (see .env)."}
-        if ref_project not in (project, source_project):
-            return {"rows": [], "error": f"Only tables in project {_project()} or {_source_project()} are allowed."}
+            return {"rows": [], "error": f"Dataset not allowed: {ref_dataset}. Use only hypeon_marts or hypeon_marts_ads."}
+        if (ref_dataset, table_part) not in allowed_tables:
+            return {"rows": [], "error": f"Table {ref_dataset}.{table_part} is not in marts schema. Allowed: fct_sessions (hypeon_marts), fct_ad_spend (hypeon_marts_ads), and related views."}
 
     # Enforce LIMIT if not present (BigQuery allows no LIMIT but we want to cap rows)
     if "LIMIT" not in upper:
