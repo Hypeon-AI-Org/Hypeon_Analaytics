@@ -1,0 +1,428 @@
+{
+  "project": "hypeon-ai-prod",
+  "hints": "fct_sessions: Use event_name IN ('view_item','view_item_list') for item views; item_id for product; utm_source for traffic source (e.g. utm_source LIKE '%google%' for 'from Google'). Always add a date filter to limit scan: e.g. WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY).",
+  "datasets": {
+    "hypeon_marts": {
+      "tables": {
+        "fct_sessions": {
+          "schema": [
+            {
+              "name": "session_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_time",
+              "type": "TIMESTAMP",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_campaign",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "session_id": "06I6LpR4423oNuWGW+A+WtBdBWYGSSkUoOMEyclU2NM=.1772226709-20260227-757459",
+              "event_time": "2026-02-27T21:38:35.709842+00:00",
+              "event_name": "view_item",
+              "user_pseudo_id": "06I6LpR4423oNuWGW+A+WtBdBWYGSSkUoOMEyclU2NM=.1772226709",
+              "utm_source": "",
+              "utm_campaign": "",
+              "item_id": "FT08B6-102-01018",
+              "device": "mobile"
+            },
+            {
+              "session_id": "/9Nf46rDlPHEpNtCCvcM7ibjr0XTigoZJz4Xkb46THM=.1772214507-20260227-306326",
+              "event_time": "2026-02-27T21:38:43.006732+00:00",
+              "event_name": "view_item",
+              "user_pseudo_id": "/9Nf46rDlPHEpNtCCvcM7ibjr0XTigoZJz4Xkb46THM=.1772214507",
+              "utm_source": "",
+              "utm_campaign": "",
+              "item_id": "FT0525-5050",
+              "device": "mobile"
+            }
+          ]
+        },
+        "int_sessions": {
+          "schema": [
+            {
+              "name": "session_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_campaign",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_timestamp",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "session_id": "ko6YF6YCuKJeT38dL/2Iekz2WFFTWOXtqE45mmhHRYk=.1772222783-20260227-717658",
+              "user_pseudo_id": "ko6YF6YCuKJeT38dL/2Iekz2WFFTWOXtqE45mmhHRYk=.1772222783",
+              "utm_source": "",
+              "utm_campaign": "",
+              "event_name": "view_item",
+              "item_id": "FT08B8-105-01482",
+              "event_timestamp": 1772222841077470
+            },
+            {
+              "session_id": "4k6Spd9Xyp8EcUp3dDY2qXgGu9Gs2e1UNcAM6b45x5Y=.1772222174-20260227-584140",
+              "user_pseudo_id": "4k6Spd9Xyp8EcUp3dDY2qXgGu9Gs2e1UNcAM6b45x5Y=.1772222174",
+              "utm_source": "",
+              "utm_campaign": "",
+              "event_name": "view_item",
+              "item_id": "FT0525-5823",
+              "event_timestamp": 1772222905962705
+            }
+          ]
+        },
+        "stg_ga4__events": {
+          "schema": [
+            {
+              "name": "event_date",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_timestamp",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_campaign",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device_category",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_quantity",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "event_date": "20260227",
+              "event_timestamp": 1772223680891978,
+              "event_name": "view_item",
+              "user_pseudo_id": "a3qzUzCuIhYfMcEcRST3WXUfH3r79Amzb1w0yqvDLUA=.1772223468",
+              "utm_source": "",
+              "utm_medium": "",
+              "utm_campaign": "",
+              "device_category": "desktop",
+              "item_id": "FT0525-8605",
+              "item_name": "Borosan 21 - 8605",
+              "item_quantity": 1
+            },
+            {
+              "event_date": "20260227",
+              "event_timestamp": 1772223698101857,
+              "event_name": "view_item",
+              "user_pseudo_id": "fvFZughAUdxJutJMv9afK7ua7uHLbDseAXfX++30NWQ=.1772032511",
+              "utm_source": "pinterest.com",
+              "utm_medium": "referral",
+              "utm_campaign": "(referral)",
+              "device_category": "mobile",
+              "item_id": "FT05B6-1044601-01",
+              "item_name": "Bodil Beige - 1044601-01",
+              "item_quantity": 1
+            }
+          ]
+        }
+      }
+    },
+    "hypeon_marts_ads": {
+      "tables": {
+        "fct_ad_spend": {
+          "schema": [
+            {
+              "name": "date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "campaign_id",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "campaign_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "ad_group_id",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "ad_id",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "network",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "clicks",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "impressions",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "conversions",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "conversion_value",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "cost",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "channel",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "date": "2026-02-24",
+              "campaign_id": 4221201460,
+              "campaign_name": null,
+              "ad_group_id": null,
+              "ad_id": null,
+              "device": "DESKTOP",
+              "network": "SEARCH",
+              "clicks": 8,
+              "impressions": 148,
+              "conversions": 0.0,
+              "conversion_value": 0.0,
+              "cost": 77.595094,
+              "channel": "google_ads"
+            },
+            {
+              "date": "2026-02-24",
+              "campaign_id": 4221201460,
+              "campaign_name": null,
+              "ad_group_id": null,
+              "ad_id": null,
+              "device": "MOBILE",
+              "network": "SEARCH",
+              "clicks": 22,
+              "impressions": 304,
+              "conversions": 0.0,
+              "conversion_value": 0.0,
+              "cost": 138.481914,
+              "channel": "google_ads"
+            }
+          ]
+        },
+        "stg_google_ads__performance": {
+          "schema": [
+            {
+              "name": "campaign_id",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "campaign_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "ad_group_id",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "ad_id",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "segments_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "network",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "clicks",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "impressions",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "conversions",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "conversion_value",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "cost",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "channel",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "campaign_id": 4221201460,
+              "campaign_name": null,
+              "ad_group_id": null,
+              "ad_id": null,
+              "segments_date": "2026-02-15",
+              "device": "DESKTOP",
+              "network": "SEARCH",
+              "clicks": 0,
+              "impressions": 3,
+              "conversions": 0.0,
+              "conversion_value": 0.0,
+              "cost": 0.0,
+              "channel": "google_ads"
+            },
+            {
+              "campaign_id": 4221201460,
+              "campaign_name": null,
+              "ad_group_id": null,
+              "ad_id": null,
+              "segments_date": "2026-02-15",
+              "device": "DESKTOP",
+              "network": "SEARCH_PARTNERS",
+              "clicks": 0,
+              "impressions": 24,
+              "conversions": 0.0,
+              "conversion_value": 0.0,
+              "cost": 0.0,
+              "channel": "google_ads"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

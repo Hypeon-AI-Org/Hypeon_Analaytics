@@ -1,6 +1,6 @@
 """
-Copilot chat handler: User question -> Dynamic schema (marts only) -> LLM SQL -> Validation -> BigQuery -> Answer + data.
-Single tool: run_sql. ONLY hypeon_marts.fct_sessions and hypeon_marts_ads.fct_ad_spend. No staging/cache/raw. Response: { answer, data }.
+Copilot chat handler: User question -> Marts schema + raw fallback schema -> LLM -> run_sql (marts) or run_sql_raw (raw) -> Answer + data.
+Tools: run_sql (primary, marts only), run_sql_raw (fallback, GA4/Ads raw). Response: { answer, data }.
 """
 from __future__ import annotations
 
@@ -10,23 +10,29 @@ import uuid
 from typing import Any, Optional
 
 from .tools import COPILOT_TOOLS, execute_tool
-from .knowledge_base import get_schema_for_copilot
+from .knowledge_base import get_schema_for_copilot, get_raw_schema_for_copilot
 
 logger = logging.getLogger(__name__)
 
 
 def _build_system_template(client_id: int) -> str:
-    """Build system prompt with dynamic marts schema only. No raw/staging/cache."""
+    """Build system prompt with marts schema and optional raw fallback schema."""
     schema = get_schema_for_copilot()
-    return f"""You are an expert marketing analytics assistant. You may query ONLY these tables: hypeon_marts.fct_sessions and hypeon_marts_ads.fct_ad_spend. Do NOT reference ads_daily_staging, ga4_daily_staging, analytics_cache, decision_store, or any raw/staging tables.
+    raw_schema = get_raw_schema_for_copilot()
+    return f"""You are an expert marketing analytics assistant. Prefer **run_sql** (marts: hypeon_marts, hypeon_marts_ads). Use **run_sql_raw** only when the question clearly needs raw data or run_sql returned no rows and the user needs data.
 
-## Knowledge base (live schema from hypeon_marts and hypeon_marts_ads only)
+## Knowledge base (live schema from hypeon_marts and hypeon_marts_ads)
 {schema}
 
-## Tool
-You have one tool: **run_sql**. Generate a single SELECT (or WITH ... SELECT) and call run_sql. Use ONLY tables that appear in the schema above (fct_sessions for events/views/traffic, fct_ad_spend for ad spend/channels). For item views use fct_sessions with event_name IN ('view_item','view_item_list') and item_id (e.g. STARTS_WITH(item_id, 'FT05B') for FT05B). For traffic source use utm_source (e.g. LIKE '%google%'). Use backtick-quoted names. Filter by date when relevant. For fct_ad_spend filter by client/customer when column exists (client_id = {client_id}).
+## Fallback: raw data (run_sql_raw)
+{raw_schema}
+When using run_sql_raw, follow the schema and hints above. Always include LIMIT and, for GA4 events_*, filter by event_date.
 
-Call run_sql when the user needs data. Do not call it for greetings or thanks.
+## Tools
+- **run_sql**: Primary. Marts only (fct_sessions, fct_ad_spend). Use for sessions, item views, traffic, ad spend. For item views use fct_sessions with event_name IN ('view_item','view_item_list') and item_id; for "from Google" add utm_source LIKE '%google%'. Always add a date filter for fct_sessions (e.g. WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)) to avoid bytes limit errors. For fct_ad_spend filter by client_id = {client_id} when the column exists.
+- **run_sql_raw**: Fallback when marts don't have the data. Allowed: GA4 events_*, Ads ads_AccountBasicStats_*. Use backtick-quoted names. Include LIMIT and date filter for GA4.
+
+Call run_sql when the user needs data from marts. Call run_sql_raw only when marts are insufficient. Do not call tools for greetings or thanks.
 
 ## Unavailable channel (e.g. Facebook)
 If the user asks for a channel (e.g. Facebook) that is not in the data, respond with: "[Channel] channel data is not currently present in the dataset. Available channels: google_ads. Once [Channel] data is integrated, this query will be supported." Do NOT mention staging, raw tables, or analytics_cache.
@@ -200,8 +206,8 @@ def chat(
                     result_str = json.dumps({"error": str(tool_err)[:200], "tool": name})
                 if not isinstance(result_str, str):
                     result_str = json.dumps(result_str) if result_str is not None else "{}"
-                # Track last run_sql rows for response data
-                if name == "run_sql":
+                # Track last run_sql or run_sql_raw rows for response data
+                if name in ("run_sql", "run_sql_raw"):
                     try:
                         parsed = json.loads(result_str)
                         last_sql_data = parsed.get("rows") if isinstance(parsed.get("rows"), list) else []

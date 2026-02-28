@@ -1,6 +1,7 @@
 """BigQuery client for HypeOn Analytics V1. Enterprise: organization_id, workspace_id, scoped queries."""
 from __future__ import annotations
 
+import logging
 import math
 import os
 import uuid
@@ -138,13 +139,112 @@ def run_readonly_query(
     if "LIMIT" not in upper:
         sql_normalized = f"{sql_normalized} LIMIT {max_rows}"
 
+    # Configurable bytes cap so fct_sessions with date filter can succeed (default 300 MB)
+    try:
+        max_mb = int(os.environ.get("BQ_COPILOT_MAX_BYTES_BILLED_MB", "300"))
+        max_mb = max(50, min(max_mb, 1024))  # clamp 50 MB–1 GB
+    except (TypeError, ValueError):
+        max_mb = 300
+    max_bytes_billed = max_mb * 1024 * 1024
+
     client = get_client()
-    job_config = bigquery.QueryJobConfig(
-        maximum_bytes_billed=100 * 1024 * 1024,  # 100 MB cap
-    )
+    job_config = bigquery.QueryJobConfig(maximum_bytes_billed=max_bytes_billed)
     try:
         query_job = client.query(sql_normalized, job_config=job_config)
         # Wait with timeout; then fetch up to max_rows
+        iterator = query_job.result(max_results=max_rows, timeout=timeout_sec)
+        rows = []
+        for row in iterator:
+            rows.append(dict(row.items()))
+        return {"rows": rows, "error": None}
+    except Exception as e:
+        return {"rows": [], "error": str(e)[:300]}
+
+
+# Copilot run_sql_raw: allowed raw datasets and table patterns (GA4 events_*, Ads ads_AccountBasicStats_*).
+def _copilot_raw_allowed_datasets() -> frozenset[str]:
+    """Datasets allowed for run_sql_raw: GA4_DATASET and ADS_DATASET."""
+    ga4 = get_ga4_dataset().strip().lower()
+    ads = get_ads_dataset().strip().lower()
+    return frozenset({ga4, ads})
+
+
+def _copilot_raw_table_allowed(dataset: str, table_name: str) -> bool:
+    """True if (dataset, table_name) is in the raw allowlist. GA4: events_* (excl. events_intraday_); Ads: ads_AccountBasicStats_*."""
+    ds = (dataset or "").strip().lower()
+    tn = (table_name or "").strip().lower()
+    ga4_ds = get_ga4_dataset().strip().lower()
+    ads_ds = get_ads_dataset().strip().lower()
+    if ds == ga4_ds:
+        return tn.startswith("events_") and not tn.startswith("events_intraday_")
+    if ds == ads_ds:
+        return tn.startswith("ads_accountbasicstats_")
+    return False
+
+
+def run_readonly_query_raw(
+    sql: str,
+    client_id: int,
+    organization_id: str,
+    max_rows: int = 500,
+    timeout_sec: float = 20.0,
+    max_bytes_billed: Optional[int] = None,
+) -> dict:
+    """
+    Run a read-only BigQuery query for Copilot raw fallback. Only GA4 events_* and Ads ads_AccountBasicStats_*.
+    Same SELECT-only checks as run_readonly_query; validates tables against raw allowlist. Enforces LIMIT and max_bytes_billed.
+    Returns {"rows": [...], "error": None} or {"rows": [], "error": "message"}.
+    """
+    import re
+    from google.cloud import bigquery
+
+    if max_bytes_billed is None:
+        try:
+            max_mb = int(os.environ.get("BQ_COPILOT_RAW_MAX_BYTES_BILLED_MB", "200"))
+            max_mb = max(50, min(max_mb, 1024))
+        except (TypeError, ValueError):
+            max_mb = 200
+        max_bytes_billed = max_mb * 1024 * 1024
+
+    sql = (sql or "").strip()
+    if not sql:
+        return {"rows": [], "error": "Empty query."}
+
+    sql_normalized = sql.rstrip(";").strip()
+    if ";" in sql_normalized:
+        return {"rows": [], "error": "Only a single SELECT statement is allowed."}
+
+    upper = sql_normalized.upper()
+    if not upper.startswith("SELECT") and not upper.startswith("WITH"):
+        return {"rows": [], "error": "Only SELECT (or WITH ... SELECT) queries are allowed."}
+    for verb in ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE", "GRANT", "REVOKE"):
+        if verb in upper:
+            return {"rows": [], "error": f"Only read-only SELECT is allowed (no {verb})."}
+
+    project = _source_project().lower()
+    allowed_raw_datasets = _copilot_raw_allowed_datasets()
+    pattern = r"`([^`]+)`"
+    for match in re.finditer(pattern, sql):
+        ref = match.group(1).strip().lower()
+        parts = ref.split(".")
+        if len(parts) != 3:
+            continue
+        ref_project, ref_dataset, table_part = parts
+        if ref_project != project:
+            return {"rows": [], "error": f"Only tables in project {_source_project()} are allowed for raw queries."}
+        if ref_dataset not in allowed_raw_datasets:
+            return {"rows": [], "error": f"Dataset not allowed for raw: {ref_dataset}. Use only GA4 or Ads raw datasets."}
+        if not _copilot_raw_table_allowed(ref_dataset, table_part):
+            return {"rows": [], "error": f"Table {ref_dataset}.{table_part} not in raw allowlist. GA4: events_*; Ads: ads_AccountBasicStats_*."}
+
+    if "LIMIT" not in upper:
+        sql_normalized = f"{sql_normalized} LIMIT {max_rows}"
+
+    location = os.environ.get("BQ_LOCATION", "europe-north2")
+    client = bigquery.Client(project=project, location=location)
+    job_config = bigquery.QueryJobConfig(maximum_bytes_billed=max_bytes_billed)
+    try:
+        query_job = client.query(sql_normalized, job_config=job_config)
         iterator = query_job.result(max_results=max_rows, timeout=timeout_sec)
         rows = []
         for row in iterator:
@@ -159,6 +259,7 @@ def get_marts_schema_live() -> list[dict] | None:
     Fetch live schema from hypeon_marts and hypeon_marts_ads for Copilot.
     Returns list of {"table_name": str, "column_name": str} or None on error.
     """
+    logger = logging.getLogger(__name__)
     project = _project()
     marts = get_marts_dataset()
     marts_ads = get_marts_ads_dataset()
@@ -176,7 +277,8 @@ def get_marts_schema_live() -> list[dict] | None:
                     r["dataset"] = ds
                     out.append(r)
         return out if out else None
-    except Exception:
+    except Exception as e:
+        logger.warning("get_marts_schema_live failed (project=%s, marts=%s, marts_ads=%s): %s", project, marts, marts_ads, e, exc_info=True)
         return None
 
 

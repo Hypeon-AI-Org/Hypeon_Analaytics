@@ -1,0 +1,15 @@
+{
+  "project": "braided-verve-459208-i6",
+  "hints": "GA4 events_*: Use UNNEST(event_params) for event_params; UNNEST(items) for items. Always filter by event_date (e.g. WHERE event_date >= '2025-01-01') to limit scan. Ads tables: filter by segments_date when relevant.",
+  "datasets": {
+    "146568": {
+      "tables": {
+        "ads_AccountBasicStats_4221201460": {
+          "schema": [],
+          "sample_rows": [],
+          "error": "Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate."
+        }
+      }
+    }
+  }
+}

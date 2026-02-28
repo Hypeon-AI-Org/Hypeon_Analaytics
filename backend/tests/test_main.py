@@ -40,6 +40,28 @@ def test_copilot_query_mocked(client):
     assert r.status_code == 404
 
 
+def test_copilot_chat_returns_answer_and_data(client):
+    """POST /api/v1/copilot/chat returns 200 with answer, data, text, session_id (marts/raw fallback)."""
+    def _mock_chat(org, msg, *, session_id=None, client_id=None):
+        return {
+            "answer": "Test answer.",
+            "data": [{"metric": "sessions", "value": 100}],
+            "text": "Test answer.",
+            "session_id": session_id or "test-session",
+        }
+    with patch("backend.app.copilot.chat_handler.chat", side_effect=_mock_chat):
+        r = client.post(
+            "/api/v1/copilot/chat",
+            json={"message": "Show last 7 days performance"},
+            headers={"X-API-Key": "test-key", "X-Organization-Id": "default"},
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert "answer" in data and "text" in data and "session_id" in data and "data" in data
+    assert isinstance(data["data"], list)
+    assert len(data["session_id"]) > 0
+
+
 def test_simulate_budget_shift_structure(client):
     r = client.post(
         "/simulate_budget_shift",

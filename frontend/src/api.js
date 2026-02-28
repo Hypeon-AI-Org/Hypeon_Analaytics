@@ -6,12 +6,25 @@ function defaultHeaders() {
   return h
 }
 
+function apiErrorMessage(res, err) {
+  if (err && typeof err === 'object' && typeof err.detail === 'object' && err.detail?.message) return err.detail.message
+  if (err?.message) return err.message
+  if (res) {
+    if (res.status === 502 || res.status === 503) return 'Backend not reachable. Start the backend on port 8001 and retry.'
+    if (res.status === 404) return 'Not found. Ensure backend is running and routes are mounted.'
+  }
+  return res?.statusText || 'Request failed'
+}
+
 // ----- Dashboard API (cache-only, <300ms) -----
 export async function fetchBusinessOverview(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
   const res = await fetch(`${API_BASE}/api/v1/dashboard/business-overview?${sp}`, { headers: defaultHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -19,7 +32,10 @@ export async function fetchCampaignPerformance(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
   const res = await fetch(`${API_BASE}/api/v1/dashboard/campaign-performance?${sp}`, { headers: defaultHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -27,7 +43,10 @@ export async function fetchFunnel(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
   const res = await fetch(`${API_BASE}/api/v1/dashboard/funnel?${sp}`, { headers: defaultHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -68,7 +87,8 @@ export async function copilotChat({ message, session_id, client_id } = {}) {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail?.message || err.message || res.statusText)
+    const msg = (typeof err.detail === 'object' && err.detail?.message) || err.message || res.statusText
+    throw new Error(msg || 'Request failed')
   }
   return res.json()
 }

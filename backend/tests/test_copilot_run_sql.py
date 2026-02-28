@@ -1,6 +1,7 @@
 """
-Tests for Copilot run_sql + knowledge base: run_readonly_query validation,
-execute_tool run_sql, knowledge_base, and chat_handler system template.
+Tests for Copilot run_sql, run_sql_raw, knowledge base, and chat_handler.
+Covers run_readonly_query, run_readonly_query_raw, execute_tool, get_schema_for_copilot,
+get_raw_schema_for_copilot, and _build_system_template.
 """
 from __future__ import annotations
 
@@ -245,6 +246,100 @@ def test_run_readonly_query_wrong_project_rejected(env_bq):
     assert "Only tables" in (out["error"] or "") or "project" in (out["error"] or "").lower()
 
 
+# ----- run_readonly_query_raw (bigquery.py) -----
+
+
+@pytest.fixture
+def env_raw():
+    """BQ_SOURCE_PROJECT, GA4_DATASET, ADS_DATASET for run_sql_raw allowlist."""
+    with patch.dict(
+        "os.environ",
+        {
+            "BQ_PROJECT": "test-proj",
+            "BQ_SOURCE_PROJECT": "test-proj",
+            "GA4_DATASET": "ga4_dataset",
+            "ADS_DATASET": "146568",
+        },
+        clear=False,
+    ):
+        yield
+
+
+def test_run_readonly_query_raw_empty_sql(env_raw):
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    out = run_readonly_query_raw("", client_id=1, organization_id="default")
+    assert out["rows"] == []
+    assert "Empty" in (out["error"] or "")
+
+
+def test_run_readonly_query_raw_insert_rejected(env_raw):
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    sql = "INSERT INTO `test-proj.ga4_dataset.events_20250101` (a) VALUES (1)"
+    out = run_readonly_query_raw(sql, client_id=1, organization_id="default")
+    assert out["rows"] == []
+    assert "SELECT" in (out["error"] or "") or "read-only" in (out["error"] or "").lower()
+
+
+def test_run_readonly_query_raw_marts_table_rejected(env_raw):
+    """Marts tables are not allowed in run_readonly_query_raw."""
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    sql = "SELECT * FROM `test-proj.hypeon_marts.fct_sessions` LIMIT 1"
+    out = run_readonly_query_raw(sql, client_id=1, organization_id="default")
+    assert out["rows"] == []
+    assert "not allowed" in (out["error"] or "").lower() or "raw" in (out["error"] or "").lower()
+
+
+def test_run_readonly_query_raw_ga4_events_allowed(env_raw):
+    """GA4 events_* table in allowed dataset passes validation."""
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    sql = "SELECT event_date, event_name FROM `test-proj.ga4_dataset.events_20250101` WHERE event_date >= '2025-01-01' LIMIT 5"
+    with patch("google.cloud.bigquery.Client") as MockClient:
+        mock_job = MagicMock()
+        mock_job.result.return_value = [
+            MagicMock(items=lambda: [("event_date", date(2025, 1, 1)), ("event_name", "page_view")]),
+        ]
+        MockClient.return_value.query.return_value = mock_job
+        out = run_readonly_query_raw(sql, client_id=1, organization_id="default")
+    assert out["error"] is None
+    assert len(out["rows"]) == 1
+
+
+def test_run_readonly_query_raw_ads_table_allowed(env_raw):
+    """Ads ads_AccountBasicStats_* table in allowed dataset passes validation."""
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    sql = "SELECT * FROM `test-proj.146568.ads_accountbasicstats_4221201460` LIMIT 2"
+    with patch("google.cloud.bigquery.Client") as MockClient:
+        mock_job = MagicMock()
+        mock_job.result.return_value = [MagicMock(items=lambda: [("segments_date", date(2025, 1, 1))])]
+        MockClient.return_value.query.return_value = mock_job
+        out = run_readonly_query_raw(sql, client_id=1, organization_id="default")
+    assert out["error"] is None
+    assert len(out["rows"]) >= 0
+
+
+def test_run_readonly_query_raw_events_intraday_rejected(env_raw):
+    """events_intraday_* is not in allowlist."""
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    sql = "SELECT * FROM `test-proj.ga4_dataset.events_intraday_20250101` LIMIT 1"
+    out = run_readonly_query_raw(sql, client_id=1, organization_id="default")
+    assert out["rows"] == []
+    assert "not in raw allowlist" in (out["error"] or "").lower() or "not allowed" in (out["error"] or "").lower()
+
+
+def test_run_readonly_query_raw_adds_limit(env_raw):
+    """run_readonly_query_raw adds LIMIT when missing."""
+    from backend.app.clients.bigquery import run_readonly_query_raw
+    sql = "SELECT 1 AS x FROM `test-proj.ga4_dataset.events_20250101`"
+    with patch("google.cloud.bigquery.Client") as MockClient:
+        mock_job = MagicMock()
+        mock_job.result.return_value = [MagicMock(items=lambda: [("x", 1)])]
+        MockClient.return_value.query.return_value = mock_job
+        out = run_readonly_query_raw(sql, client_id=1, organization_id="default", max_rows=10)
+    assert out["error"] is None
+    call_sql = MockClient.return_value.query.call_args[0][0]
+    assert "LIMIT 10" in call_sql
+
+
 # ----- execute_tool run_sql (tools.py) -----
 
 
@@ -306,11 +401,34 @@ def test_execute_tool_run_sql_propagates_error():
 
 
 def test_execute_tool_unknown_tool_returns_error():
-    """Only run_sql is supported; other tool names return error."""
+    """Only run_sql and run_sql_raw are supported; other tool names return error."""
     from backend.app.copilot.tools import execute_tool
     result = execute_tool("org", 1, "get_business_overview", {})
     data = json.loads(result)
     assert "Unknown tool" in (data.get("error") or "")
+
+
+def test_execute_tool_run_sql_raw_empty_query():
+    from backend.app.copilot.tools import execute_tool
+    result = execute_tool("org", 1, "run_sql_raw", {"query": ""})
+    data = json.loads(result)
+    assert data["rows"] == []
+    assert "Missing" in (data.get("error") or "")
+
+
+def test_execute_tool_run_sql_raw_delegates_to_run_readonly_query_raw(env_raw):
+    from backend.app.copilot.tools import execute_tool
+    sql = "SELECT * FROM `test-proj.ga4_dataset.events_20250101` LIMIT 1"
+    with patch("backend.app.clients.bigquery.run_readonly_query_raw") as mock_run:
+        mock_run.return_value = {"rows": [{"event_name": "page_view"}], "error": None}
+        result = execute_tool("org", 1, "run_sql_raw", {"query": sql})
+    mock_run.assert_called_once()
+    assert mock_run.call_args[1]["client_id"] == 1
+    assert mock_run.call_args[1]["organization_id"] == "org"
+    data = json.loads(result)
+    assert data["row_count"] == 1
+    assert data["rows"][0]["event_name"] == "page_view"
+    assert data["error"] is None
 
 
 # ----- knowledge_base -----
@@ -385,6 +503,93 @@ def test_knowledge_base_no_static_table_names():
     assert "ga4_daily_staging" not in schema or "Do NOT" in schema
 
 
+# ----- get_marts_catalog_for_copilot (knowledge_base.py) -----
+
+
+def test_get_marts_catalog_for_copilot_missing_file_returns_empty():
+    """When copilot_marts_catalog.json is missing, return empty string."""
+    from backend.app.copilot.knowledge_base import get_marts_catalog_for_copilot
+    with patch("backend.app.copilot.knowledge_base._marts_catalog_path") as mock_path:
+        mock_path.return_value = Path(ROOT) / "nonexistent_marts_catalog_12345.json"
+        result = get_marts_catalog_for_copilot()
+    assert result == ""
+
+
+def test_get_marts_catalog_for_copilot_valid_file_contains_tables_and_hints():
+    """When copilot_marts_catalog.json exists, return string with Data catalog, tables, hints."""
+    import tempfile
+    from backend.app.copilot.knowledge_base import get_marts_catalog_for_copilot
+    catalog_data = {
+        "project": "proj",
+        "hints": "fct_sessions: event_name, item_id, utm_source; add date filter.",
+        "datasets": {
+            "hypeon_marts": {
+                "tables": {
+                    "fct_sessions": {
+                        "schema": [{"name": "event_name", "type": "STRING"}, {"name": "item_id", "type": "STRING"}, {"name": "utm_source", "type": "STRING"}],
+                        "sample_rows": [{"event_name": "view_item", "item_id": "FT05B1", "utm_source": "google"}],
+                    },
+                },
+            },
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(catalog_data, f)
+        path = Path(f.name)
+    try:
+        with patch("backend.app.copilot.knowledge_base._marts_catalog_path", return_value=path):
+            result = get_marts_catalog_for_copilot()
+        assert "Data catalog" in result or "catalog" in result.lower()
+        assert "fct_sessions" in result
+        assert "event_name" in result or "item_id" in result or "utm_source" in result
+        assert "date filter" in result or "hints" in result.lower()
+    finally:
+        path.unlink(missing_ok=True)
+
+
+# ----- get_raw_schema_for_copilot (knowledge_base.py) -----
+
+
+def test_get_raw_schema_for_copilot_missing_file_returns_use_marts_only():
+    """When raw_copilot_schema.json is missing, return short message to use marts only."""
+    from backend.app.copilot.knowledge_base import get_raw_schema_for_copilot
+    with patch("backend.app.copilot.knowledge_base._raw_schema_path") as mock_path:
+        mock_path.return_value = Path(ROOT) / "nonexistent_raw_schema_12345.json"
+        result = get_raw_schema_for_copilot()
+    assert "marts only" in result.lower() or "not available" in result.lower()
+
+
+def test_get_raw_schema_for_copilot_valid_file_contains_tables_and_schema():
+    """When raw_copilot_schema.json exists, return string with dataset/table and schema info."""
+    import tempfile
+    from backend.app.copilot.knowledge_base import get_raw_schema_for_copilot
+    raw_data = {
+        "project": "proj",
+        "hints": "Use UNNEST for event_params.",
+        "datasets": {
+            "ga4_ds": {
+                "tables": {
+                    "events_20250101": {
+                        "schema": [{"name": "event_date", "type": "DATE"}, {"name": "event_name", "type": "STRING"}],
+                        "sample_rows": [{"event_date": "2025-01-01", "event_name": "page_view"}],
+                    },
+                },
+            },
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(raw_data, f)
+        path = Path(f.name)
+    try:
+        with patch("backend.app.copilot.knowledge_base._raw_schema_path", return_value=path):
+            result = get_raw_schema_for_copilot()
+        assert "run_sql_raw" in result or "Fallback" in result
+        assert "ga4_ds" in result or "events_20250101" in result
+        assert "event_date" in result or "event_name" in result
+    finally:
+        path.unlink(missing_ok=True)
+
+
 # ----- chat_handler _build_system_template -----
 
 
@@ -402,15 +607,24 @@ def test_build_system_template_includes_run_sql_and_schema():
     assert "Knowledge base" in t or "fct_sessions" in t or "schema" in t
 
 
-def test_build_system_template_run_sql_only_no_dashboard():
-    """Copilot has one tool (run_sql), marts only; no layout/widgets/dashboard."""
+def test_build_system_template_run_sql_and_run_sql_raw_no_dashboard():
+    """Copilot has run_sql and run_sql_raw; no layout/widgets/dashboard."""
     from backend.app.copilot.chat_handler import _build_system_template
     t = _build_system_template(1)
     assert "run_sql" in t
+    assert "run_sql_raw" in t
     assert "hypeon_marts" in t and "fct_sessions" in t
     assert "get_business_overview" not in t
     assert "widgets" not in t
     assert "layout" not in t
+
+
+def test_build_system_template_includes_fallback_raw_section():
+    """System template includes Fallback raw data section (run_sql_raw)."""
+    from backend.app.copilot.chat_handler import _build_system_template
+    t = _build_system_template(1)
+    assert "Fallback" in t or "run_sql_raw" in t
+    assert "raw" in t.lower() or "run_sql_raw" in t
 
 
 def test_build_system_template_ft05b_google_uses_fct_sessions():

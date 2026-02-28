@@ -146,6 +146,13 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestLogMiddleware)
 
+# Dashboard API (cache; business-overview, campaign-performance, funnel)
+try:
+    from .api.dashboard import router as dashboard_router
+    app.include_router(dashboard_router, prefix="/api/v1")
+except ImportError:
+    pass
+
 # Analysis API (queries BigQuery for in-depth breakdowns; optional)
 try:
     from .api.analysis import router as analysis_router
@@ -403,47 +410,73 @@ def copilot_stream(
 
 
 # ----- V1 Copilot (chat only: LLM + run_sql) -----
+def _copilot_safe_response(out: dict) -> JSONResponse:
+    """Build a 200 JSONResponse from copilot output; ensure all values are JSON-serializable."""
+    answer = str(out.get("answer") or out.get("text") or "")
+    text = str(out.get("text") or out.get("answer") or "")
+    raw_data = out.get("data")
+    if not isinstance(raw_data, list):
+        raw_data = []
+    data = []
+    for r in raw_data:
+        if not isinstance(r, dict):
+            continue
+        row = {}
+        for k, v in r.items():
+            row[k] = v.isoformat() if hasattr(v, "isoformat") else v
+        data.append(row)
+    session_id = str(out.get("session_id") or "")
+    return JSONResponse(
+        status_code=200,
+        content={"answer": answer, "text": text, "data": data, "session_id": session_id},
+    )
+
+
 @app.post("/api/v1/copilot/chat")
 def copilot_chat(
     body: CopilotChatBody,
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Chat: every query is handled by the LLM with tools. No hardcoded routing; LLM analyzes and responds dynamically."""
-    org = get_organization_id(request)
-    logger.info("Copilot chat | org=%s session_id=%s", org, body.session_id or "(new)")
+    """Chat: every query is handled by the LLM with tools. Always returns 200 (never 500)."""
+    import uuid
+    fallback_answer = (
+        "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". "
+        "If this persists, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set and that the analytics schema is available."
+    )
     try:
+        sid = str((body.session_id or uuid.uuid4()) if body else uuid.uuid4())
+    except Exception:
+        sid = str(uuid.uuid4())
+    default_fail = {"answer": fallback_answer, "data": [], "text": fallback_answer, "session_id": sid}
+
+    try:
+        org = get_organization_id(request)
+        logger.info("Copilot chat | org=%s session_id=%s", org, getattr(body, "session_id", None) or "(new)")
         from .copilot.chat_handler import chat
-        import uuid
-        msg = (body.message or "").strip()
-        sid = body.session_id or str(uuid.uuid4())
+        msg = (getattr(body, "message", None) or "").strip()
         if not msg:
-            return {"answer": "Please type a message to get a response.", "data": [], "text": "Please type a message to get a response.", "session_id": sid}
-        out = chat(org, msg, session_id=sid, client_id=body.client_id)
+            return _copilot_safe_response({"answer": "Please type a message to get a response.", "data": [], "text": "Please type a message to get a response.", "session_id": sid})
+        out = chat(org, msg, session_id=sid, client_id=getattr(body, "client_id", None))
         text = (out.get("text") or out.get("answer") or "").strip()
         if text and ("couldn't complete" in text.lower() or "couldnt complete" in text.lower()):
             fallback = "I'm having trouble right now. Please try again in a moment, or ask something like \"Views count of item FT05B from Google\"."
             out = {**out, "text": fallback, "answer": fallback, "data": out.get("data") or []}
-        return out
+        return _copilot_safe_response(out)
     except Exception as e:
-        logger.exception(
-            "Copilot chat failed | org=%s session_id=%s error=%s",
-            org, body.session_id or "(new)", str(e)[:200],
-        )
-        msg = (body.message or "").strip().lower()
-        if msg in ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo"):
-            return {
-                "answer": "Hi! How can I help with your marketing analytics today? Ask about views, campaigns, traffic, or item performance.",
-                "data": [],
-                "text": "Hi! How can I help with your marketing analytics today? Ask about views, campaigns, traffic, or item performance.",
-                "session_id": body.session_id or "",
-            }
-        return {
-            "answer": "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". Check ANTHROPIC_API_KEY or GEMINI_API_KEY if this persists.",
-            "data": [],
-            "text": "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". Check ANTHROPIC_API_KEY or GEMINI_API_KEY if this persists.",
-            "session_id": body.session_id or "",
-        }
+        logger.exception("Copilot chat failed | session_id=%s error=%s", sid, str(e)[:200])
+        try:
+            msg = (getattr(body, "message", None) or "").strip().lower()
+            if msg in ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo"):
+                return _copilot_safe_response({
+                    "answer": "Hi! How can I help with your marketing analytics today? Ask about views, campaigns, traffic, or item performance.",
+                    "data": [],
+                    "text": "Hi! How can I help with your marketing analytics today? Ask about views, campaigns, traffic, or item performance.",
+                    "session_id": sid,
+                })
+        except Exception:
+            pass
+        return _copilot_safe_response({**default_fail, "session_id": sid})
 
 
 @app.get("/api/v1/copilot/chat/history")
