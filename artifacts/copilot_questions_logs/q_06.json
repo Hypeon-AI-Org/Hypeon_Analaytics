@@ -1,7 +1,7 @@
 {
   "question": "True last-click ROAS vs what Google/Meta claim \u2014 the double-counting reality check",
-  "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
+  "answer": "# Last-Click Attribution Analysis (90-Day Period)\n\n## Key Findings\n\n**True Last-Click ROAS Reality:**\n\n| Channel | Users | Transactions | Revenue | Avg Order Value | Revenue/User |\n|---------|-------|--------------|---------|-----------------|--------------|\n| Google CPC | 329 | 329 | $43,199.32 | $131.30 | $131.30 |\n| Direct | 97 | 97 | $16,858.58 | $173.80 | $173.80 |\n| Google Organic | 29 | 29 | $3,119.27 | $107.56 | $107.56 |\n| Pinterest Paid Social | 23 | 23 | $2,288.34 | $99.49 | $99.49 |\n| Data Not Available | 11 | 11 | $1,601.00 | $145.55 | $145.55 |\n\n## The Double-Counting Reality Check\n\n**What this data reveals:**\n\n- **Google CPC dominates** with 329 last-click conversions ($43.2K revenue) \u2014 but this likely includes users who interacted with other channels first\n- **Direct traffic** (97 users, $16.9K) represents either true direct visits OR users whose attribution chain was lost\n- **Attribution gap**: 11 rows show \"Data Not Available\" and 19 rows have empty UTM parameters \u2014 these are unattributed conversions that platforms may claim differently\n\n**The Problem:**\n- Google Ads claims credit for Google CPC conversions, but many of these users likely saw Pinterest, Facebook, or organic content first\n- Meta (Facebook) shows minimal last-click credit (8 transactions, $321) despite potentially driving awareness earlier in the funnel\n- **Total attributed revenue: $70,128.19** \u2014 but actual marketing touchpoints across the customer journey are significantly higher\n\n**Bottom Line:** Last-click attribution systematically overvalues paid search and undervalues awareness/consideration channels. Google's claimed ROAS is inflated because it captures conversions influenced by earlier touchpoints.",
+  "data_rows": 28,
   "session_id": "sim-5",
-  "success": false
+  "success": true
 }

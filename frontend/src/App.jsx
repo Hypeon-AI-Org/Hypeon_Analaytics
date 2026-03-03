@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { User, Sparkles } from 'lucide-react'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Layout from './Layout'
 import DashboardOverview from './pages/DashboardOverview'
 import CampaignPage from './pages/CampaignPage'
@@ -11,6 +12,9 @@ import CopilotChat from './CopilotChat'
 import CopilotPanel from './components/CopilotPanel'
 import GoogleAdsPage from './pages/GoogleAdsPage'
 import GoogleAnalyticsPage from './pages/GoogleAnalyticsPage'
+import Login from './pages/Login'
+import Signup from './pages/Signup'
+import ForgotPassword from './pages/ForgotPassword'
 
 const PAGE_TITLES = {
   '/campaigns': 'Campaigns',
@@ -68,22 +72,48 @@ function AnalyticsCopilotSwitch() {
 
 function PageHeader() {
   const location = useLocation()
+  const { user, signOut, isConfigured } = useAuth()
   const path = location.pathname || '/dashboard'
   const title = path === '/dashboard' ? 'Dashboard Overview' : (PAGE_TITLES[path] || PAGE_TITLES['/dashboard'])
 
   return (
-    <header className="flex-shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
+    <header className="flex-shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur-sm shadow-sm px-6 py-4 flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-bold text-slate-800">{title}</h2>
       </div>
       <div className="flex items-center gap-3">
         <AnalyticsCopilotSwitch />
+        {isConfigured && user && (
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="text-sm text-slate-600 hover:text-slate-800 font-medium"
+          >
+            Sign out
+          </button>
+        )}
         <button type="button" aria-label="Profile" className="p-1.5 rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors">
           <User size={20} strokeWidth={2} />
         </button>
       </div>
     </header>
   )
+}
+
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth()
+  const location = useLocation()
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <p className="text-slate-600">Loading…</p>
+      </div>
+    )
+  }
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+  return children
 }
 
 function MainContent({ openCopilotForInsight }) {
@@ -130,15 +160,29 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Layout>
-        <MainContent openCopilotForInsight={openCopilotForInsight} />
-      </Layout>
-      <CopilotPanel
-        open={copilotOpen}
-        onClose={() => setCopilotOpen(false)}
-        initialQuery={copilotQuery}
-        explainInsightId={explainInsightId}
-      />
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <MainContent openCopilotForInsight={openCopilotForInsight} />
+                </Layout>
+                <CopilotPanel
+                  open={copilotOpen}
+                  onClose={() => setCopilotOpen(false)}
+                  initialQuery={copilotQuery}
+                  explainInsightId={explainInsightId}
+                />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

@@ -514,9 +514,10 @@ def test_knowledge_base_no_static_table_names():
 
 
 def test_get_marts_catalog_for_copilot_missing_file_returns_empty():
-    """When copilot_marts_catalog.json is missing, return empty string."""
+    """When unified schema is not used and copilot_marts_catalog.json is missing, return empty string."""
     from backend.app.copilot.knowledge_base import get_marts_catalog_for_copilot
-    with patch("backend.app.copilot.knowledge_base._marts_catalog_path") as mock_path:
+    with patch("backend.app.copilot.knowledge_base._load_all_schemas_and_samples", return_value=None), \
+         patch("backend.app.copilot.knowledge_base._marts_catalog_path") as mock_path:
         mock_path.return_value = Path(ROOT) / "nonexistent_marts_catalog_12345.json"
         result = get_marts_catalog_for_copilot()
     assert result == ""
@@ -544,7 +545,8 @@ def test_get_marts_catalog_for_copilot_valid_file_contains_tables_and_hints():
         json.dump(catalog_data, f)
         path = Path(f.name)
     try:
-        with patch("backend.app.copilot.knowledge_base._marts_catalog_path", return_value=path):
+        with patch("backend.app.copilot.knowledge_base._load_all_schemas_and_samples", return_value=None), \
+             patch("backend.app.copilot.knowledge_base._marts_catalog_path", return_value=path):
             result = get_marts_catalog_for_copilot()
         assert "Data catalog" in result or "catalog" in result.lower()
         assert "fct_sessions" in result
@@ -558,9 +560,10 @@ def test_get_marts_catalog_for_copilot_valid_file_contains_tables_and_hints():
 
 
 def test_get_raw_schema_for_copilot_missing_file_returns_use_marts_only():
-    """When raw_copilot_schema.json is missing, return short message to use marts only."""
+    """When unified schema is not used and raw_copilot_schema.json is missing, return use marts only."""
     from backend.app.copilot.knowledge_base import get_raw_schema_for_copilot
-    with patch("backend.app.copilot.knowledge_base._raw_schema_path") as mock_path:
+    with patch("backend.app.copilot.knowledge_base._load_all_schemas_and_samples", return_value=None), \
+         patch("backend.app.copilot.knowledge_base._raw_schema_path") as mock_path:
         mock_path.return_value = Path(ROOT) / "nonexistent_raw_schema_12345.json"
         result = get_raw_schema_for_copilot()
     assert "marts only" in result.lower() or "not available" in result.lower()
@@ -588,7 +591,8 @@ def test_get_raw_schema_for_copilot_valid_file_contains_tables_and_schema():
         json.dump(raw_data, f)
         path = Path(f.name)
     try:
-        with patch("backend.app.copilot.knowledge_base._raw_schema_path", return_value=path):
+        with patch("backend.app.copilot.knowledge_base._load_all_schemas_and_samples", return_value=None), \
+             patch("backend.app.copilot.knowledge_base._raw_schema_path", return_value=path):
             result = get_raw_schema_for_copilot()
         assert "run_sql_raw" in result or "Fallback" in result
         assert "ga4_ds" in result or "events_20250101" in result

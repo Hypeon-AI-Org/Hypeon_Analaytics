@@ -37,6 +37,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import get_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
+from .auth import init_firebase, get_organization_id, get_role_from_token as auth_get_role
 from .config_loader import get
 from .copilot_synthesizer import (
     set_llm_client,
@@ -69,6 +70,10 @@ async def lifespan(app: FastAPI):
     import os
     if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
         os.environ["GOOGLE_CLOUD_PROJECT"] = get_bq_project()
+    try:
+        init_firebase()
+    except Exception as e:
+        logger.warning("Firebase init: %s", e)
     logger.info("Request logging active: every API request will be logged (METHOD path -> status | duration)")
     yield
 
@@ -162,25 +167,33 @@ except ImportError:
 
 
 # ----- Auth and tenant context (must be before routes that use them) -----
-def get_organization_id(request: Request) -> str:
-    return request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "default"
-
+# get_organization_id and get_role_from_token imported from .auth (Firebase + Firestore when Bearer present)
 
 def get_workspace_id(request: Request) -> Optional[str]:
     return request.headers.get("X-Workspace-Id") or None
 
 
 def get_role_from_token(request: Request) -> str:
-    auth = request.headers.get("Authorization")
-    if auth and auth.startswith("Bearer "):
-        return "analyst"
+    """Role from Firebase user doc, or API key / Bearer / viewer fallback."""
+    return auth_get_role(request, get_api_key)
+
+
+def _has_any_auth(request: Request) -> bool:
+    """True if request has Bearer token or valid API key (auth required for all protected routes, including local)."""
+    if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
+        return True
     if get_api_key() and request.headers.get("X-API-Key") == get_api_key():
-        return "admin"
-    return "viewer"
+        return True
+    return False
 
 
 def require_role(*allowed: str):
     def dep(request: Request):
+        if not _has_any_auth(request):
+            raise HTTPException(
+                401,
+                detail={"code": "UNAUTHORIZED", "message": "Authentication required. Use Bearer token (Firebase) or X-API-Key."},
+            )
         role = get_role_from_token(request)
         if role not in allowed:
             raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "Insufficient role"})
@@ -477,6 +490,31 @@ def copilot_chat(
         except Exception:
             pass
         return _copilot_safe_response({**default_fail, "session_id": sid})
+
+
+def _copilot_chat_stream_gen(org: str, message: str, session_id: Optional[str], client_id: Optional[int]):
+    """Yield SSE lines from chat_stream. Each event: data: <json>\\n\\n."""
+    from .copilot.chat_handler import chat_stream
+    for ev in chat_stream(org, message, session_id=session_id, client_id=client_id):
+        yield "data: " + json.dumps(ev) + "\n\n"
+
+
+@app.post("/api/v1/copilot/chat/stream")
+def copilot_chat_stream(
+    body: CopilotChatBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Stream copilot chat with status phases (analyzing, discovering, generating_sql, running_query, formatting) then done or error."""
+    org = get_organization_id(request)
+    msg = (getattr(body, "message", None) or "").strip()
+    sid = getattr(body, "session_id", None)
+    cid = getattr(body, "client_id", None)
+    return StreamingResponse(
+        _copilot_chat_stream_gen(org, msg, sid, cid),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/v1/copilot/chat/history")

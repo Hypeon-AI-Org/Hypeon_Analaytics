@@ -1,6 +1,6 @@
 {
   "question": "Profile of the top 10% spenders \u2014 channel, first product, purchase frequency",
-  "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+  "answer": "I couldn't find relevant data for that question. Queries tried: WITH user_spending AS (\n  SELECT\n    user_pseudo_id,\n    total_revenue_usd,\n    PERCENT_RANK() OVER (ORDER BY total_revenue_usd) as percentile_rank\n  FROM `hypeon-ai-prod.hypeon_marts.dim_user_order_summary`\n  WHERE total_revenue_usd > 0\n),\ntop_10_percent AS (\n  SELECT user_pseudo_id\n  FROM user_spending\n  WHERE percentile_rank >= 0.9\n)\nSELECT\n  t10.user_pseudo_id,\n  dft.utm_source as channel,\n  dfp.first_product_id,\n  dus.order_count as purchase_frequency,\n  dus.total_revenue_usd,\n  dft.first_v.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
   "data_rows": 0,
   "session_id": "sim-13",
   "success": false

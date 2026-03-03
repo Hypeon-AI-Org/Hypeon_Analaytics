@@ -1,13 +1,452 @@
 {
   "project": "hypeon-ai-prod",
-  "hints": "fct_sessions: Use event_name IN ('view_item','view_item_list') for item views; item_id for product; utm_source for traffic source (e.g. utm_source LIKE '%google%' for 'from Google'). Always add a date filter to limit scan: e.g. WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY).",
+  "hints": "fct_sessions: Use event_name IN ('view_item','view_item_list') for item views; item_id for product; utm_source for traffic source (e.g. utm_source LIKE '%google%' for 'from Google'). Always add a date filter to limit scan: WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY) (or event_date if the table has it). Funnel (drop-off, checkout): use event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'); break down by device or utm_source for paid vs organic. Landing/entry page: use page_location; identify first event per session (e.g. ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp)). Churn/LTV/repeat: fct_user_ltv (revenue_7d, revenue_30d, revenue_90d), dim_user_order_summary (days_since_last_order, order_count), dim_user_first_product (first_product_id). If a query returns 0 rows, it may mean no one in that segment (e.g. no churn in 45-90 days); report that and suggest a shorter window.",
   "datasets": {
     "hypeon_marts": {
       "tables": {
+        "dim_user_first_product": {
+          "schema": [
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_order_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_transaction_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_product_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "user_pseudo_id": "9KcvUodkXeata9h0WKzQc7DlDD9cyQ0ubct5ke35DMg=.1766241601",
+              "first_order_date": "2026-02-28",
+              "first_transaction_id": "342424",
+              "first_product_id": "FT0525-7762-SAMPLE"
+            },
+            {
+              "user_pseudo_id": "kGbk/hA1W3yKFdtuR1a+WySCKlB1cGV5qi476lu/gfc=.1772296866",
+              "first_order_date": "2026-02-28",
+              "first_transaction_id": "342519",
+              "first_product_id": "FT0525-8059"
+            }
+          ]
+        },
+        "dim_user_first_touch": {
+          "schema": [
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_visit_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_purchase_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "days_to_first_purchase",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "has_purchased",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "user_pseudo_id": "rZBlti1GHHuBP3w0hThR+xsAKNx25S06NeLMGqC40EY=.1772424270",
+              "first_visit_date": "2026-03-02",
+              "first_purchase_date": null,
+              "utm_source": "",
+              "utm_medium": "",
+              "days_to_first_purchase": null,
+              "has_purchased": 0
+            },
+            {
+              "user_pseudo_id": "AUfr/VR4G9eY5WNwNerJEA9Ps6tmdj+mGGGj3KbqlLs=.1772424402",
+              "first_visit_date": "2026-03-02",
+              "first_purchase_date": null,
+              "utm_source": "",
+              "utm_medium": "",
+              "days_to_first_purchase": null,
+              "has_purchased": 0
+            }
+          ]
+        },
+        "dim_user_order_summary": {
+          "schema": [
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_order_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "last_order_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "order_count",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "total_revenue_usd",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "days_since_last_order",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "user_pseudo_id": "iWy+KHBkXVribaqgYGQ6jVTTdDmDg6+JEeXWmzR4Cd4=.1772367342",
+              "first_order_date": "2026-03-02",
+              "last_order_date": "2026-03-02",
+              "order_count": 1,
+              "total_revenue_usd": 23.424488,
+              "days_since_last_order": 0
+            },
+            {
+              "user_pseudo_id": "+LsGnC5YW5cJ5W3Pca1Y1k32Zwp2C872cCmBSR3yv+Q=.1772450834",
+              "first_order_date": "2026-03-02",
+              "last_order_date": "2026-03-02",
+              "order_count": 1,
+              "total_revenue_usd": 70.666217,
+              "days_since_last_order": 0
+            }
+          ]
+        },
+        "fct_channel_ltv": {
+          "schema": [
+            {
+              "name": "channel_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "channel_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "users_with_purchase",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "total_revenue_7d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "total_revenue_30d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "total_revenue_90d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "avg_ltv_90d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "channel_source": "google",
+              "channel_medium": "cpc",
+              "users_with_purchase": 332,
+              "total_revenue_7d": 46081.017417,
+              "total_revenue_30d": 46081.017417,
+              "total_revenue_90d": 46081.017417,
+              "avg_ltv_90d": 138.79824523192772
+            },
+            {
+              "channel_source": "",
+              "channel_medium": "",
+              "users_with_purchase": 22,
+              "total_revenue_7d": 1943.092269,
+              "total_revenue_30d": 1943.092269,
+              "total_revenue_90d": 1943.092269,
+              "avg_ltv_90d": 88.32237586363637
+            }
+          ]
+        },
+        "fct_funnel": {
+          "schema": [
+            {
+              "name": "event_date",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "channel_type",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "unique_users",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "events",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "event_date": "20260302",
+              "event_name": "session_start",
+              "device": "mobile",
+              "utm_source": "",
+              "utm_medium": "",
+              "channel_type": "organic",
+              "unique_users": 2034,
+              "events": 2180
+            },
+            {
+              "event_date": "20260302",
+              "event_name": "view_item",
+              "device": "mobile",
+              "utm_source": "",
+              "utm_medium": "",
+              "channel_type": "organic",
+              "unique_users": 1802,
+              "events": 4269
+            }
+          ]
+        },
+        "fct_order_items": {
+          "schema": [
+            {
+              "name": "transaction_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_date",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_name",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_quantity",
+              "type": "INTEGER",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_revenue",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "transaction_id": "343042",
+              "user_pseudo_id": "iWy+KHBkXVribaqgYGQ6jVTTdDmDg6+JEeXWmzR4Cd4=.1772367342",
+              "event_date": "20260302",
+              "item_id": "FT0525-6973-SAMPLE",
+              "item_name": "Tapetprov",
+              "item_quantity": 1,
+              "item_revenue": 3.839112,
+              "utm_source": "",
+              "device": "desktop"
+            },
+            {
+              "transaction_id": "fba8d065-6ef7-29bb-be95-cab55ee61991",
+              "user_pseudo_id": "xMkQ4TIL4X16Yw1i+S3N8ZxznuGirsVZdd2erjhjm34=.1772451978",
+              "event_date": "20260302",
+              "item_id": "FT0575-LINN68527190",
+              "item_name": "LINEN UNI VERT GRIS - LINN68527190",
+              "item_quantity": 1,
+              "item_revenue": 40.332546,
+              "utm_source": "",
+              "device": "mobile"
+            }
+          ]
+        },
+        "fct_orders": {
+          "schema": [
+            {
+              "name": "transaction_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_date",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "order_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "utm_campaign",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "device",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "city",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "country",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "revenue_usd",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "transaction_id": "343170",
+              "user_pseudo_id": "jX06baqS50YE5GgiP+nF7VNQUg4oYFH/F43MVky6v6g=.1767532843",
+              "event_date": "20260302",
+              "order_date": "2026-03-02",
+              "utm_source": "google",
+              "utm_medium": "cpc",
+              "utm_campaign": "(organic)",
+              "device": "desktop",
+              "city": "",
+              "country": "France",
+              "revenue_usd": 176.988955
+            },
+            {
+              "transaction_id": "70860d04-408c-2c00-882a-09e31f398601",
+              "user_pseudo_id": "Ct0mvDTEM/u4PIUFiPiBlf8j+tpZ7pUnLBXm0dff+YA=.1772401713",
+              "event_date": "20260302",
+              "order_date": "2026-03-02",
+              "utm_source": "google",
+              "utm_medium": "cpc",
+              "utm_campaign": "(organic)",
+              "device": "mobile",
+              "city": "Houghton Regis",
+              "country": "United Kingdom",
+              "revenue_usd": 8.76306
+            }
+          ]
+        },
         "fct_sessions": {
           "schema": [
             {
               "name": "session_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_date",
               "type": "STRING",
               "mode": "NULLABLE"
             },
@@ -32,6 +471,11 @@
               "mode": "NULLABLE"
             },
             {
+              "name": "utm_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
               "name": "utm_campaign",
               "type": "STRING",
               "mode": "NULLABLE"
@@ -45,28 +489,147 @@
               "name": "device",
               "type": "STRING",
               "mode": "NULLABLE"
+            },
+            {
+              "name": "transaction_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "event_value_in_usd",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "purchase_revenue_in_usd",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_revenue",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "city",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "country",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "region",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "page_location",
+              "type": "STRING",
+              "mode": "NULLABLE"
             }
           ],
           "sample_rows": [
             {
-              "session_id": "06I6LpR4423oNuWGW+A+WtBdBWYGSSkUoOMEyclU2NM=.1772226709-20260227-757459",
-              "event_time": "2026-02-27T21:38:35.709842+00:00",
-              "event_name": "view_item",
-              "user_pseudo_id": "06I6LpR4423oNuWGW+A+WtBdBWYGSSkUoOMEyclU2NM=.1772226709",
-              "utm_source": "",
-              "utm_campaign": "",
-              "item_id": "FT08B6-102-01018",
-              "device": "mobile"
+              "session_id": "CXXi6cc4DHpkkxyCF5ymsvITBokGmJCI2WV0YxwtLaU=.1771884352-20260302-607023",
+              "event_date": "20260302",
+              "event_time": "2026-03-02T01:00:19.557777+00:00",
+              "event_name": "page_view",
+              "user_pseudo_id": "CXXi6cc4DHpkkxyCF5ymsvITBokGmJCI2WV0YxwtLaU=.1771884352",
+              "utm_source": "google",
+              "utm_medium": "organic",
+              "utm_campaign": "(organic)",
+              "item_id": null,
+              "device": "desktop",
+              "transaction_id": "",
+              "event_value_in_usd": 0.0,
+              "purchase_revenue_in_usd": 0.0,
+              "item_revenue": 0.0,
+              "city": "Carballo",
+              "country": "Spain",
+              "region": "Galicia",
+              "page_location": "https://www.wallpassion.com/es/duro-wallpaper?pagenumber=17"
             },
             {
-              "session_id": "/9Nf46rDlPHEpNtCCvcM7ibjr0XTigoZJz4Xkb46THM=.1772214507-20260227-306326",
-              "event_time": "2026-02-27T21:38:43.006732+00:00",
-              "event_name": "view_item",
-              "user_pseudo_id": "/9Nf46rDlPHEpNtCCvcM7ibjr0XTigoZJz4Xkb46THM=.1772214507",
+              "session_id": "Jh4+ne72mmYKIVDJXJB/DmMzCYKTEKs0l1FkJPf25m0=.1772411513-20260302-853735",
+              "event_date": "20260302",
+              "event_time": "2026-03-02T01:00:25.849595+00:00",
+              "event_name": "user_engagement",
+              "user_pseudo_id": "Jh4+ne72mmYKIVDJXJB/DmMzCYKTEKs0l1FkJPf25m0=.1772411513",
               "utm_source": "",
+              "utm_medium": "",
               "utm_campaign": "",
-              "item_id": "FT0525-5050",
-              "device": "mobile"
+              "item_id": null,
+              "device": "desktop",
+              "transaction_id": "",
+              "event_value_in_usd": 0.0,
+              "purchase_revenue_in_usd": 0.0,
+              "item_revenue": 0.0,
+              "city": "Drogheda",
+              "country": "Ireland",
+              "region": "County Louth",
+              "page_location": "https://www.wallpassion.com/ie/golden-lily-logwoodclay-217552"
+            }
+          ]
+        },
+        "fct_user_ltv": {
+          "schema": [
+            {
+              "name": "user_pseudo_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_touch_utm_source",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_touch_utm_medium",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "first_purchase_date",
+              "type": "DATE",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "revenue_7d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "revenue_30d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "revenue_90d",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            }
+          ],
+          "sample_rows": [
+            {
+              "user_pseudo_id": "kFX+f1xioo0EfWSG8f+b3FhL2brppu9zKK6R9zG4nf8=.1772084464",
+              "first_touch_utm_source": "google",
+              "first_touch_utm_medium": "cpc",
+              "first_purchase_date": "2026-02-27",
+              "revenue_7d": 131.437725,
+              "revenue_30d": 131.437725,
+              "revenue_90d": 131.437725
+            },
+            {
+              "user_pseudo_id": "nl+lX40aPnQ1+hEJpn0fyLK6eZBO7lgNvJ2bqzT1byQ=.1771006526",
+              "first_touch_utm_source": "google",
+              "first_touch_utm_medium": "cpc",
+              "first_purchase_date": "2026-03-02",
+              "revenue_7d": 54.491761,
+              "revenue_30d": 54.491761,
+              "revenue_90d": 54.491761
             }
           ]
         },
@@ -110,22 +673,22 @@
           ],
           "sample_rows": [
             {
-              "session_id": "ko6YF6YCuKJeT38dL/2Iekz2WFFTWOXtqE45mmhHRYk=.1772222783-20260227-717658",
-              "user_pseudo_id": "ko6YF6YCuKJeT38dL/2Iekz2WFFTWOXtqE45mmhHRYk=.1772222783",
+              "session_id": "cgzCz/Ftt/eVTFMa0Yn2nxoqfJ1XWnMGAm9xEtpIAKE=.1772416947-20260302-318359",
+              "user_pseudo_id": "cgzCz/Ftt/eVTFMa0Yn2nxoqfJ1XWnMGAm9xEtpIAKE=.1772416947",
               "utm_source": "",
               "utm_campaign": "",
               "event_name": "view_item",
-              "item_id": "FT08B8-105-01482",
-              "event_timestamp": 1772222841077470
+              "item_id": "FT0549-NSCW113238",
+              "event_timestamp": 1772416949563267
             },
             {
-              "session_id": "4k6Spd9Xyp8EcUp3dDY2qXgGu9Gs2e1UNcAM6b45x5Y=.1772222174-20260227-584140",
-              "user_pseudo_id": "4k6Spd9Xyp8EcUp3dDY2qXgGu9Gs2e1UNcAM6b45x5Y=.1772222174",
+              "session_id": "cgzCz/Ftt/eVTFMa0Yn2nxoqfJ1XWnMGAm9xEtpIAKE=.1772416947-20260302-958333",
+              "user_pseudo_id": "cgzCz/Ftt/eVTFMa0Yn2nxoqfJ1XWnMGAm9xEtpIAKE=.1772416947",
               "utm_source": "",
               "utm_campaign": "",
-              "event_name": "view_item",
-              "item_id": "FT0525-5823",
-              "event_timestamp": 1772222905962705
+              "event_name": "user_engagement",
+              "item_id": null,
+              "event_timestamp": 1772416952719316
             }
           ]
         },
@@ -172,6 +735,46 @@
               "mode": "NULLABLE"
             },
             {
+              "name": "event_value_in_usd",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "transaction_id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "purchase_revenue_in_usd",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "item_revenue",
+              "type": "FLOAT",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "city",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "country",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "region",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "page_location",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
               "name": "item_id",
               "type": "STRING",
               "mode": "NULLABLE"
@@ -189,30 +792,46 @@
           ],
           "sample_rows": [
             {
-              "event_date": "20260227",
-              "event_timestamp": 1772223680891978,
+              "event_date": "20260302",
+              "event_timestamp": 1772453467703004,
               "event_name": "view_item",
-              "user_pseudo_id": "a3qzUzCuIhYfMcEcRST3WXUfH3r79Amzb1w0yqvDLUA=.1772223468",
-              "utm_source": "",
-              "utm_medium": "",
-              "utm_campaign": "",
+              "user_pseudo_id": "gZQxrsFAGmp8XAJhXb4gj+66Rt1WlbBCRi/KU+m5mYg=.1764790619",
+              "utm_source": "google",
+              "utm_medium": "cpc",
+              "utm_campaign": "ES: PMax | Tapet Alla Low TROAS",
               "device_category": "desktop",
-              "item_id": "FT0525-8605",
-              "item_name": "Borosan 21 - 8605",
+              "event_value_in_usd": 0.0,
+              "transaction_id": "",
+              "purchase_revenue_in_usd": 0.0,
+              "item_revenue": 0.0,
+              "city": "Barcelona",
+              "country": "Spain",
+              "region": "Catalonia",
+              "page_location": "https://www.wallpassion.com/es/olive-drupe-g45450?gad_source=1&gad_campaignid=22605793880&gbraid=0AAAAA90Jf43Sa3Q7QHL32rwkiiFDuWg6S&gclid=CjwKCAiAh5XNBhAAEiwA_Bu8FXb8XCsDKBItDX27nogtiPSTNsFvDtArTeeM8m8VoLkS66anAXX2MxoCC6QQAvD_BwE",
+              "item_id": "FT0537-G45450",
+              "item_name": "Olive Drupe - G45450",
               "item_quantity": 1
             },
             {
-              "event_date": "20260227",
-              "event_timestamp": 1772223698101857,
-              "event_name": "view_item",
-              "user_pseudo_id": "fvFZughAUdxJutJMv9afK7ua7uHLbDseAXfX++30NWQ=.1772032511",
-              "utm_source": "pinterest.com",
-              "utm_medium": "referral",
-              "utm_campaign": "(referral)",
+              "event_date": "20260302",
+              "event_timestamp": 1772453469762375,
+              "event_name": "scroll",
+              "user_pseudo_id": "x3jA0ltT+tYRClqEtl6SnHo5tbdC5Qu1QKyngzA3gUE=.1772050244",
+              "utm_source": "Pinterest",
+              "utm_medium": "PaidSocial",
+              "utm_campaign": "626754513180",
               "device_category": "mobile",
-              "item_id": "FT05B6-1044601-01",
-              "item_name": "Bodil Beige - 1044601-01",
-              "item_quantity": 1
+              "event_value_in_usd": 0.0,
+              "transaction_id": "",
+              "purchase_revenue_in_usd": 0.0,
+              "item_revenue": 0.0,
+              "city": "Lublin",
+              "country": "Poland",
+              "region": "Lublin Voivodeship",
+              "page_location": "https://www.wallpassion.com/pl/close-up-of-grass-at-sunset?utm_campaign=626754513180&utm_medium=PaidSocial&utm_source=Pinterest&utm_content=2680084317808&pp=0&epik=dj0yJnU9aUViUkRKdzlNN2tka1phcWZqTHBrWjd2ZnNfY2Z5TlQmcD0xJm49UEdJRjlSVXF3WjBMa0FPUmRxcUpBUSZ0PUFBQUFBR21sZmww",
+              "item_id": null,
+              "item_name": null,
+              "item_quantity": 0
             }
           ]
         }
@@ -290,33 +909,33 @@
           ],
           "sample_rows": [
             {
-              "date": "2026-02-24",
+              "date": "2026-02-28",
               "campaign_id": 4221201460,
               "campaign_name": null,
               "ad_group_id": null,
               "ad_id": null,
               "device": "DESKTOP",
               "network": "SEARCH",
-              "clicks": 8,
-              "impressions": 148,
+              "clicks": 0,
+              "impressions": 14,
               "conversions": 0.0,
               "conversion_value": 0.0,
-              "cost": 77.595094,
+              "cost": 0.0,
               "channel": "google_ads"
             },
             {
-              "date": "2026-02-24",
+              "date": "2026-02-28",
               "campaign_id": 4221201460,
               "campaign_name": null,
               "ad_group_id": null,
               "ad_id": null,
-              "device": "MOBILE",
-              "network": "SEARCH",
-              "clicks": 22,
-              "impressions": 304,
+              "device": "DESKTOP",
+              "network": "SEARCH_PARTNERS",
+              "clicks": 0,
+              "impressions": 28,
               "conversions": 0.0,
               "conversion_value": 0.0,
-              "cost": 138.481914,
+              "cost": 0.0,
               "channel": "google_ads"
             }
           ]
@@ -395,14 +1014,14 @@
               "campaign_name": null,
               "ad_group_id": null,
               "ad_id": null,
-              "segments_date": "2026-02-15",
+              "segments_date": "2026-02-24",
               "device": "DESKTOP",
               "network": "SEARCH",
-              "clicks": 0,
-              "impressions": 3,
+              "clicks": 8,
+              "impressions": 148,
               "conversions": 0.0,
               "conversion_value": 0.0,
-              "cost": 0.0,
+              "cost": 77.595094,
               "channel": "google_ads"
             },
             {
@@ -410,14 +1029,14 @@
               "campaign_name": null,
               "ad_group_id": null,
               "ad_id": null,
-              "segments_date": "2026-02-15",
-              "device": "DESKTOP",
-              "network": "SEARCH_PARTNERS",
-              "clicks": 0,
-              "impressions": 24,
+              "segments_date": "2026-02-24",
+              "device": "MOBILE",
+              "network": "SEARCH",
+              "clicks": 22,
+              "impressions": 304,
               "conversions": 0.0,
               "conversion_value": 0.0,
-              "cost": 0.0,
+              "cost": 138.481914,
               "channel": "google_ads"
             }
           ]

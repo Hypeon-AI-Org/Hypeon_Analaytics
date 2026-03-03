@@ -77,6 +77,68 @@ def _marts_catalog_path() -> Path:
     return repo_root / "bigquery_schema" / "copilot_marts_catalog.json"
 
 
+def _all_schemas_path() -> Path:
+    """Path to all_schemas_and_samples.json (written by scripts/fetch_all_schemas_and_samples.py)."""
+    env_path = os.environ.get("BQ_ALL_SCHEMAS_PATH", "").strip()
+    if env_path:
+        return Path(env_path)
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "bigquery_schema" / "all_schemas_and_samples.json"
+
+
+# Cache for unified schema file: (path_str, mtime) -> parsed dict. Invalidated when file changes.
+_ALL_SCHEMAS_CACHE: tuple[str, float, dict] | None = None
+
+
+def _load_all_schemas_and_samples() -> dict | None:
+    """Load all_schemas_and_samples.json if present; return None if missing or invalid. Cached by path + mtime."""
+    global _ALL_SCHEMAS_CACHE
+    path = _all_schemas_path()
+    if not path.is_file():
+        return None
+    try:
+        mtime = path.stat().st_mtime
+        path_str = str(path)
+        if _ALL_SCHEMAS_CACHE is not None and _ALL_SCHEMAS_CACHE[0] == path_str and _ALL_SCHEMAS_CACHE[1] == mtime:
+            return _ALL_SCHEMAS_CACHE[2]
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or "datasets" not in data:
+            return None
+        _ALL_SCHEMAS_CACHE = (path_str, mtime, data)
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _format_datasets_catalog(
+    datasets_dict: dict,
+    project: str,
+    max_cols: int = 50,
+    max_sample_snippet: int = 500,
+) -> str:
+    """Build catalog text from datasets_dict (ds_id -> { tables: { table_id -> { schema, sample_rows } } })."""
+    parts: list[str] = []
+    for ds_id, ds_obj in sorted(datasets_dict.items()):
+        if not isinstance(ds_obj, dict):
+            continue
+        tables = ds_obj.get("tables") or {}
+        for table_id, tbl in sorted(tables.items()):
+            if not isinstance(tbl, dict) or tbl.get("error"):
+                continue
+            schema = tbl.get("schema") or []
+            flat = _flatten_schema(schema)
+            col_list = ", ".join(f"{n} ({t})" for n, t in flat[:max_cols])
+            if len(flat) > max_cols:
+                col_list += f", ... +{len(flat) - max_cols} more"
+            parts.append(f"- **{ds_id}.{table_id}** (project: {project})")
+            parts.append(f"  Columns: {col_list}")
+            for i, row in enumerate((tbl.get("sample_rows") or [])[:2]):
+                if isinstance(row, dict):
+                    parts.append(f"  Sample {i + 1}: {json.dumps(row, default=str)[:max_sample_snippet]}")
+            parts.append("")
+    return "\n".join(parts).strip()
+
+
 # Max chars for raw schema section to avoid blowing the prompt.
 _RAW_SCHEMA_MAX_CHARS = 15_000
 _MARTS_CATALOG_MAX_CHARS = 12_000
@@ -199,9 +261,36 @@ def _schema_error_message(detail: str) -> str:
 
 def get_marts_catalog_for_copilot() -> str:
     """
-    Load copilot_marts_catalog.json (datasets, tables, schema, sample rows) and return
-    a formatted string for the system prompt so the copilot knows what data exists.
+    Load schema + sample rows for marts (hypeon_marts, hypeon_marts_ads).
+    Prefers all_schemas_and_samples.json when present; falls back to copilot_marts_catalog.json.
     """
+    data = _load_all_schemas_and_samples()
+    if data:
+        marts_ds = get_marts_dataset()
+        marts_ads_ds = os.environ.get("MARTS_ADS_DATASET", "hypeon_marts_ads")
+        ds = data.get("datasets") or {}
+        subset = {k: v for k, v in ds.items() if k in (marts_ds, marts_ads_ds)}
+        if subset:
+            project = data.get("bq_project") or get_bq_project()
+            hints = (
+                "Prefer marts (fct_sessions, fct_orders, fct_ad_spend, fct_funnel, dim_user_*, etc.). "
+                "Date filters required for event/session tables."
+            )
+            body = _format_datasets_catalog(subset, project, max_cols=50, max_sample_snippet=500)
+            if body:
+                result = "\n".join([
+                    "",
+                    "## Data catalog (schema + sample rows for accurate queries)",
+                    "Use this to see column types and example values. Prefer run_sql against these tables.",
+                    "",
+                    f"Catalog hints: {hints}",
+                    "",
+                    body,
+                ]).strip()
+                if len(result) > _MARTS_CATALOG_MAX_CHARS:
+                    result = result[:_MARTS_CATALOG_MAX_CHARS] + "\n... (truncated)"
+                return result
+    # Fallback: copilot_marts_catalog.json
     path = _marts_catalog_path()
     if not path.is_file():
         return ""
@@ -283,9 +372,39 @@ def _marts_only_rules(project: str, marts: str, marts_ads: str) -> str:
 
 def get_raw_schema_for_copilot() -> str:
     """
-    Load raw_copilot_schema.json and return a string for the system prompt (run_sql_raw fallback).
-    If file is missing or empty, returns a short message to use marts only. Capped at _RAW_SCHEMA_MAX_CHARS.
+    Load schema + sample rows for raw datasets (GA4, Ads).
+    Prefers all_schemas_and_samples.json when present; falls back to raw_copilot_schema.json.
+    Capped at _RAW_SCHEMA_MAX_CHARS.
     """
+    data = _load_all_schemas_and_samples()
+    if data:
+        ga4_ds = get_ga4_dataset()
+        ads_ds = get_ads_dataset()
+        ds = data.get("datasets") or {}
+        subset = {k: v for k, v in ds.items() if k in (ga4_ds, ads_ds)}
+        if subset:
+            project = data.get("bq_source_project") or get_bq_source_project()
+            hints = (
+                "GA4 events_*: use UNNEST(event_params), UNNEST(items); filter by event_date. "
+                "Ads: filter by segments_date. Funnel: event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'). "
+                "Landing page: page_location and first event per session."
+            )
+            body = _format_datasets_catalog(subset, project, max_cols=40, max_sample_snippet=400)
+            if body:
+                result = "\n".join([
+                    "",
+                    "## Fallback: raw data (run_sql_raw)",
+                    "Use run_sql_raw only when marts (run_sql) don't have the needed data or returned no rows.",
+                    "Allowed: GA4 events_* tables, Ads ads_* tables. Always include LIMIT and, for GA4, a date filter (event_date).",
+                    "",
+                    f"Query hints: {hints}",
+                    "",
+                    body,
+                ]).strip()
+                if len(result) > _RAW_SCHEMA_MAX_CHARS:
+                    result = result[:_RAW_SCHEMA_MAX_CHARS] + "\n... (truncated)"
+                return result if result else "Raw data schema not available; use marts only."
+    # Fallback: raw_copilot_schema.json
     path = _raw_schema_path()
     if not path.is_file():
         return "Raw data schema not available; use marts only (run_sql)."
@@ -303,6 +422,7 @@ def get_raw_schema_for_copilot() -> str:
         "## Fallback: raw data (run_sql_raw)",
         "Use run_sql_raw only when marts (run_sql) don't have the needed data or returned no rows.",
         "Allowed: GA4 events_* tables, Ads ads_AccountBasicStats_* tables. Always include LIMIT and, for GA4, a date filter (event_date).",
+        "Funnel/checkout: use event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'). Landing page: use page_location and first event per session.",
         "",
     ]
     if hints:

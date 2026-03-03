@@ -29,6 +29,14 @@ ORDER_GA4 = [
     "01_stg_ga4__events.sql",
     "03_int_sessions.sql",
     "04_fct_sessions.sql",
+    "06_fct_orders.sql",
+    "07_fct_order_items.sql",
+    "08_fct_funnel.sql",
+    "09_dim_user_first_touch.sql",
+    "10_fct_user_ltv.sql",
+    "11_fct_channel_ltv.sql",
+    "12_dim_user_order_summary.sql",
+    "13_dim_user_first_product.sql",
 ]
 ORDER_ADS = [
     "00_create_dataset_ads.sql",

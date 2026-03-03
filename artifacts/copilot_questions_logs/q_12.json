@@ -1,7 +1,7 @@
 {
   "question": "Repeat purchase rate + what did they first buy \u2014 cohort repurchase analysis",
-  "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
+  "answer": "# Cohort Repurchase Analysis\n\n## Summary\n**Data Source:** `dim_user_order_summary` and `dim_user_first_product` tables  \n**Total Rows:** 477 cohorts analyzed  \n**Date Range:** March 2026 (most recent data shown)\n\n## Key Findings for March 2026 Cohort\n\n| Metric | Value |\n|--------|-------|\n| **Total Users** | Varies by first product (1 user per product shown) |\n| **Overall Repeat Purchase Rate** | 0-100% (varies by product) |\n| **Avg LTV (USD)** | $51.77 - $376.09 |\n\n## Top Performing Products (March 2026)\n\n**Highest Repeat Purchase Rate:**\n- **Product FT0540-611133**: 100% repeat purchase rate (1 of 1 users), Avg LTV: $51.77\n\n**Zero Repeat Purchase Rate (Sample):**\n- FT05B6-1051001-03-SAMPLE: 0% (0 of 1), Avg LTV: $6.02\n- FT0508-DABW217227: 0% (0 of 1), Avg LTV: $133.62\n- FT0525-4307: 0% (0 of 1), Avg LTV: $376.09\n\n## Data Limitation\n\u26a0\ufe0f **Note:** March 2026 cohort shows very small sample sizes (1 user per product), making repeat purchase rates unreliable for actionable insights. For meaningful analysis, recommend aggregating by cohort month without product-level granularity or filtering for products with minimum user thresholds (e.g., 10+ users).",
+  "data_rows": 477,
   "session_id": "sim-11",
-  "success": false
+  "success": true
 }

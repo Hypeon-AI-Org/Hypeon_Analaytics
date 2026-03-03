@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { copilotChat, copilotChatHistory, fetchCopilotSessions } from './api'
+import { copilotChatStream, copilotChatHistory, fetchCopilotSessions } from './api'
 
 const COPILOT_SESSION_KEY = 'hypeon_copilot_session_id'
 
@@ -96,7 +96,9 @@ export default function CopilotChat() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [streamStatus, setStreamStatus] = useState(null)
   const [error, setError] = useState(null)
+  const streamRef = useRef(null)
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState(initialSessionId || sessionStorage.getItem(COPILOT_SESSION_KEY))
   const sessionIdRef = useRef(initialSessionId || sessionStorage.getItem(COPILOT_SESSION_KEY))
@@ -187,32 +189,48 @@ export default function CopilotChat() {
     const text = input.trim()
     if (!text || loading) return
     setError(null)
+    setStreamStatus(null)
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', text }])
     setLoading(true)
-    try {
-      const res = await copilotChat({
-        message: text,
-        session_id: sessionIdRef.current || undefined,
-      })
-      if (res.session_id) {
-        sessionIdRef.current = res.session_id
-        setActiveSessionId(res.session_id)
-        sessionStorage.setItem(COPILOT_SESSION_KEY, res.session_id)
-        loadSessions()
+    if (streamRef.current?.cancel) streamRef.current.cancel()
+    const { promise, cancel } = copilotChatStream(
+      { message: text, session_id: sessionIdRef.current || undefined },
+      (ev) => {
+        if (ev.phase === 'analyzing' || ev.phase === 'discovering' || ev.phase === 'generating_sql' || ev.phase === 'running_query' || ev.phase === 'formatting') {
+          setStreamStatus(ev.message || 'Processing…')
+        } else if (ev.phase === 'done') {
+          if (ev.session_id) {
+            sessionIdRef.current = ev.session_id
+            setActiveSessionId(ev.session_id)
+            sessionStorage.setItem(COPILOT_SESSION_KEY, ev.session_id)
+            loadSessions()
+          }
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', text: ev.answer || '', data: ev.data || null },
+          ])
+          setStreamStatus(null)
+          setLoading(false)
+        } else if (ev.phase === 'error') {
+          setError(ev.error || 'Something went wrong')
+          setMessages((prev) => [...prev, { role: 'assistant', text: '', error: ev.error }])
+          setStreamStatus(null)
+          setLoading(false)
+        }
       }
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: res.answer || res.text || '', data: res.data || null },
-      ])
+    )
+    streamRef.current = { cancel }
+    try {
+      await promise
     } catch (err) {
+      if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong')
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: '', error: err.message },
-      ])
-    } finally {
+      setMessages((prev) => [...prev, { role: 'assistant', text: '', error: err.message }])
+      setStreamStatus(null)
       setLoading(false)
+    } finally {
+      streamRef.current = null
     }
   }
 
@@ -234,7 +252,7 @@ export default function CopilotChat() {
           <button
             type="button"
             onClick={startNewChat}
-            className="w-full mt-2 flex items-center justify-center gap-1.5 rounded-lg py-2 px-3 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-500 transition-all"
+            className="w-full mt-2 flex items-center justify-center gap-1.5 rounded-lg py-2 px-3 text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-all shadow-md"
           >
             <span aria-hidden>+</span>
             New Chat
@@ -253,7 +271,7 @@ export default function CopilotChat() {
                     onClick={() => loadSession(s.session_id)}
                     className={`w-full text-left px-2 py-2 rounded-md text-xs transition-colors flex items-center gap-1.5 ${
                       activeSessionId === s.session_id
-                        ? 'bg-blue-900/70 text-white font-bold'
+                        ? 'bg-brand-900/60 text-white font-bold'
                         : 'text-slate-400 hover:bg-white/10 hover:text-white font-normal'
                     }`}
                   >
@@ -330,7 +348,7 @@ export default function CopilotChat() {
     >
       <span
         className="w-7 h-7 rounded-md flex items-center justify-center 
-                   text-blue-600 bg-blue-50 group-hover:bg-blue-100 
+                   text-brand-600 bg-brand-50 group-hover:bg-brand-100 
                    transition-colors shrink-0"
         aria-hidden
       >
@@ -370,7 +388,7 @@ export default function CopilotChat() {
                 <div
                   className={`max-w-[85%] min-w-0 rounded-2xl px-4 py-3 ${
                     msg.role === 'user'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/20'
                       : 'glass-card border border-slate-200'
                   }`}
                 >
@@ -386,28 +404,36 @@ export default function CopilotChat() {
                         </div>
                       ) : null}
                       {msg.data && Array.isArray(msg.data) && msg.data.length > 0 && (
-                        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-slate-100">
-                              <tr>
-                                {Object.keys(msg.data[0]).map((k) => (
-                                  <th key={k} className="px-3 py-2 text-left font-medium text-slate-700">{k}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {msg.data.slice(0, 100).map((row, i) => (
-                                <tr key={i} className="border-t border-slate-100">
-                                  {Object.values(row).map((v, j) => (
-                                    <td key={j} className="px-3 py-2 text-slate-600">{String(v ?? '')}</td>
+                        <div className="mt-4">
+                          <details className="group">
+                            <summary className="text-sm font-medium text-slate-600 cursor-pointer list-none flex items-center gap-2 py-1 hover:text-slate-800">
+                              <span className="inline-block w-4 h-4 rounded border border-slate-300 group-open:rotate-90 transition-transform" aria-hidden />
+                              Detailed data ({msg.data.length} row{msg.data.length !== 1 ? 's' : ''})
+                            </summary>
+                            <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/50">
+                              <table className="min-w-full text-sm copilot-data-table">
+                                <thead className="bg-slate-100">
+                                  <tr>
+                                    {Object.keys(msg.data[0]).map((k) => (
+                                      <th key={k} className="px-3 py-2 text-left font-medium text-slate-700 whitespace-nowrap">{k}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {msg.data.slice(0, 25).map((row, i) => (
+                                    <tr key={i} className="border-t border-slate-200 hover:bg-slate-50/80">
+                                      {Object.values(row).map((v, j) => (
+                                        <td key={j} className="px-3 py-2 text-slate-600">{String(v ?? '')}</td>
+                                      ))}
+                                    </tr>
                                   ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {msg.data.length > 100 && (
-                            <p className="px-3 py-2 text-xs text-slate-500">Showing first 100 of {msg.data.length} rows</p>
-                          )}
+                                </tbody>
+                              </table>
+                              {msg.data.length > 25 && (
+                                <p className="px-3 py-2 text-xs text-slate-500 border-t border-slate-200">Showing first 25 of {msg.data.length} rows</p>
+                              )}
+                            </div>
+                          </details>
                         </div>
                       )}
                     </>
@@ -418,11 +444,13 @@ export default function CopilotChat() {
 
             {loading && (
               <div className="flex justify-start mb-6 animate-copilot-fade-in">
-                <div className="glass-card rounded-2xl px-4 py-3 flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '150ms' }} />
-                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '300ms' }} />
-                  <span className="text-sm text-slate-500 ml-1">Thinking…</span>
+                <div className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3 min-w-[200px]">
+                  <span className="flex gap-1 shrink-0">
+                    <span className="inline-block w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
+                    <span className="inline-block w-2 h-2 rounded-full bg-brand-500 animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <span className="inline-block w-2 h-2 rounded-full bg-brand-500 animate-pulse" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <span className="text-sm text-slate-600 font-medium">{streamStatus || 'Thinking…'}</span>
                 </div>
               </div>
             )}
@@ -453,7 +481,7 @@ export default function CopilotChat() {
         <div className="flex-shrink-0 bg-white px-6 py-4 flex justify-center">
           <div className="w-full max-w-2xl mx-auto">
             {/* Input bar aligned with chat content */}
-            <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50/80 shadow-sm transition-all duration-300 focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-400 focus-within:bg-white px-2">
+            <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50/80 shadow-sm transition-all duration-300 focus-within:ring-2 focus-within:ring-brand-500/30 focus-within:border-brand-400 focus-within:bg-white px-2">
   
   <input
     ref={inputRef}
@@ -474,20 +502,20 @@ export default function CopilotChat() {
   type="button"
   onClick={send}
   disabled={loading || !input.trim()}
-  className="
+    className="
     ml-2
     w-11 h-11
     rounded-full
-    bg-blue-600
+    bg-brand-600
     text-white
     flex items-center justify-center
     transition-all duration-200
-    hover:bg-blue-500
+    hover:bg-brand-700
     hover:scale-105
     active:scale-95
     disabled:opacity-40
     disabled:cursor-not-allowed
-    shadow-md hover:shadow-lg
+    shadow-lg shadow-brand-500/25 hover:shadow-xl
   "
   aria-label="Send"
 >

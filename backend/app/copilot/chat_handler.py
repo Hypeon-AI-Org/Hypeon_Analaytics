@@ -9,10 +9,10 @@ import logging
 import re
 import time
 import uuid
-from typing import Any, List, Optional
+from typing import Any, Generator, List, Optional
 
 from .defaults import get_max_retries
-from .tools import run_bigquery_sql
+from .tools import run_bigquery_sql, _serialize_rows
 from .validator import validate as validate_result
 from . import copilot_metrics
 
@@ -28,6 +28,9 @@ _SQL_GUIDE = """You are a BigQuery SQL expert for a read-only analytics warehous
 - Date filters: If the schema shows event_date or event_time with type STRING, the column is usually YYYYMMDD format. Use PARSE_DATE('%Y%m%d', event_date) for date comparison, or filter with: event_date >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)). Do NOT use CAST(event_date AS DATE) or compare a STRING column directly to a DATE. If the column type is DATE or TIMESTAMP, you may use event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY).
 - If a table has client_id, filter by client_id = {client_id} when the question is about this client.
 - For "days from first visit to first purchase" or "time lag" by channel: get first visit date (e.g. MIN(event_date) WHERE event_name = 'session_start') and first purchase date (e.g. MIN(event_date) WHERE event_name = 'purchase') per user; JOIN on user_pseudo_id only (do not require same utm_source on both); then attribute by the utm_source of the first visit. Use DATE_DIFF for days between dates.
+- For ROAS or revenue vs cost: join fct_orders (revenue) with fct_ad_spend (cost) by channel/campaign where possible; use COALESCE for missing keys. Prefer marts; if no join key, use utm_source/campaign_id.
+- Funnel (drop-off, checkout): use event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'). Break down by utm_source or device for paid vs organic.
+- Landing page / entry page: use page_location and the first event per session (e.g. ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp)); event_name can be session_start or page_view if present.
 
 ## What NOT to do
 - Do NOT use INSERT, UPDATE, DELETE, MERGE, CREATE, DROP, ALTER, TRUNCATE, GRANT, REVOKE, EXPORT. Only SELECT is allowed.
@@ -38,11 +41,19 @@ _SQL_GUIDE = """You are a BigQuery SQL expert for a read-only analytics warehous
 
 Output only the SQL query."""
 
-_FORMAT_SYSTEM = """You are a marketing analytics assistant. Format the query result into a clear, accurate answer.
-- Use markdown tables for tabular data (e.g. | Column A | Column B |).
-- Use bullet lists for short lists.
-- Include key numbers and which table/source was used.
-- Do not invent data. Be concise."""
+_FORMAT_SYSTEM = """You are a marketing analytics assistant. Format the query result into a clear, readable answer.
+
+Structure and formatting:
+- Use **##** for main sections (e.g. ## Summary, ## Key Metrics, ## By Source, ## Insights).
+- Use exactly one newline between a table header row and the separator row, and between the separator and data rows. Example:
+  | Metric | Value |
+  |--------|-------|
+  | Sessions | 5,934 |
+  Do NOT concatenate table rows without newlines (no "| A | B | |---||---|" on one line).
+- Use bullet lists for key insights or short lists.
+- For large result sets (many rows): write a concise summary with 1–2 small tables (max 10–15 rows each). Do not embed a full dump of all rows. Add a brief note like "Full result has N rows; top rows above."
+- Do not invent data. Be concise.
+- If the result has 0 rows: state that no data matches; suggest widening the time window or relaxing filters if relevant."""
 
 
 def _is_simple_greeting(msg: str) -> bool:
@@ -51,6 +62,22 @@ def _is_simple_greeting(msg: str) -> bool:
     lower = msg.strip().lower()
     greetings = ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo", "sup", "good morning", "good afternoon", "good evening")
     return lower in greetings or lower.rstrip("!?.") in greetings
+
+
+def _allow_empty_for_question(message: str) -> bool:
+    """Allow 0 rows as valid for analytical/segment questions where empty is a valid answer."""
+    if not message:
+        return False
+    lower = (message or "").strip().lower()
+    phrases = (
+        "days from first", "time lag", "first visit to first purchase",
+        "churn", "went quiet", "45", "90 days", "days since last",
+        "90-day ltv", "ltv by channel", "repeat purchase", "first buy",
+        "top 10%", "top 10 percent", "spenders", "profile of",
+        "landing page", "entry page", "drop off", "drop-off", "abandon",
+        "funnel", "checkout", "no conversions", "no data",
+    )
+    return any(p in lower for p in phrases)
 
 
 def _schema_block(candidates: List[dict]) -> str:
@@ -153,19 +180,28 @@ def _llm_generate_sql(system: str, user_content: str) -> Optional[str]:
     return _extract_sql_from_response(raw) if raw else None
 
 
-def _format_answer(message: str, sql_used: str, rows: list, organization_id: str, session_id: str) -> str:
+def _format_answer(message: str, sql_used: str, rows: list, organization_id: str, session_id: str, from_raw: bool = False) -> str:
     """One LLM call to format the result. Prefer Claude, fallback Gemini."""
     try:
         from ..llm_claude import is_claude_configured, chat_completion_with_tools as claude_chat
         from ..llm_gemini import is_gemini_configured, chat_completion_with_tools as gemini_chat
     except Exception:
         return _fallback_answer(rows, sql_used)
-    data_preview = json.dumps(rows[:15], default=str)[:4000]
+    # For large result sets, pass more rows for context but instruct the LLM to summarize
+    preview_rows = rows[:50] if len(rows) > 30 else rows[:20]
+    data_preview = json.dumps(preview_rows, default=str)[:6000]
+    extra = " (Data from raw fallback.)" if from_raw else ""
+    zero_row_note = ""
+    if len(rows) == 0:
+        zero_row_note = " The query returned 0 rows. State that no data matches; suggest widening the time window or relaxing filters if relevant."
+    large_set_note = ""
+    if len(rows) > 30:
+        large_set_note = f" The result has {len(rows)} rows. Output a concise summary with clear sections (##) and at most 1–2 small markdown tables (max 10–15 rows each). Do not list every row."
     prompt = (
         f"User question: {message}\n\n"
         f"SQL used: {sql_used}\n\n"
         f"Result ({len(rows)} rows): {data_preview}\n\n"
-        "Format the above into a clear, well-formatted answer (use markdown tables or lists where appropriate). Do not invent data."
+        f"Format the above into a clear, well-formatted answer. Use markdown tables with proper newlines between header, separator, and rows. Use ## for sections. Do not invent data.{large_set_note}{zero_row_note}{extra}"
     )
     msgs = [{"role": "user", "content": prompt}]
     if is_claude_configured():
@@ -183,6 +219,46 @@ def _format_answer(message: str, sql_used: str, rows: list, organization_id: str
         except Exception:
             pass
     return _fallback_answer(rows, sql_used)
+
+
+def _try_raw_fallback(message: str, organization_id: str, client_id: int) -> Optional[tuple[list, str]]:
+    """When marts return 0 rows, try one query against raw GA4/Ads. Returns (rows, sql_used) or None."""
+    try:
+        from .knowledge_base import get_raw_schema_for_copilot
+        from ..clients.bigquery import run_readonly_query_raw
+    except Exception as e:
+        logger.warning("Raw fallback import failed: %s", e)
+        return None
+    raw_schema = get_raw_schema_for_copilot()
+    if not raw_schema or "not available" in raw_schema.lower():
+        return None
+    system = (
+        "You are a BigQuery SQL expert. Output exactly one SELECT query using ONLY the raw tables and columns listed below. "
+        "Use backtick-quoted table names. Add LIMIT 500. For GA4 use event_date filter (e.g. event_date >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))). "
+        "No marts tables—only GA4 events_* or Ads tables from the schema below.\n\n"
+        + raw_schema[:8000]
+    )
+    user_content = f"User question: {message.strip()}\n\nOutput only the single BigQuery SELECT query:"
+    sql_used = _llm_generate_sql(system, user_content)
+    if not sql_used:
+        return None
+    try:
+        out = run_readonly_query_raw(
+            sql_used,
+            client_id=client_id,
+            organization_id=organization_id,
+            max_rows=500,
+            timeout_sec=25.0,
+        )
+    except Exception as e:
+        logger.warning("Raw fallback run failed: %s", e)
+        return None
+    if out.get("error"):
+        logger.info("Raw fallback query error: %s", out.get("error")[:200])
+        return None
+    rows = out.get("rows") or []
+    rows = _serialize_rows(rows)
+    return (rows, sql_used)
 
 
 def _fallback_answer(rows: list, sql_used: str) -> str:
@@ -285,12 +361,8 @@ def chat(
             previous_sql = sql_used
             previous_error = (out.get("error") or "Unknown error")[:300]
             continue
-        # Allow empty result for time-lag / first-visit-to-purchase questions (query can be valid but return 0 rows)
-        msg_lower = (message or "").strip().lower()
-        allow_empty = any(
-            phrase in msg_lower
-            for phrase in ("days from first", "time lag", "first visit to first purchase")
-        )
+        # Allow 0 rows for analytical/segment questions (churn, LTV, repeat purchase, funnel, etc.)
+        allow_empty = _allow_empty_for_question(message)
         is_valid, _reason = validate_result(out, message, allow_empty=allow_empty)
         if is_valid:
             valid_result = out
@@ -298,7 +370,10 @@ def chat(
                 copilot_metrics.increment("copilot.fallback_success_total")
             break
         previous_sql = sql_used
-        previous_error = "Query returned no rows or invalid result."
+        previous_error = (
+            "Query returned no rows or invalid result. "
+            "Try a different table (e.g. raw events or fct_sessions), a wider time window, or fewer WHERE filters."
+        )
 
     if valid_result is not None and sql_used:
         rows = valid_result.get("rows") or []
@@ -315,6 +390,17 @@ def chat(
         store.append(organization_id, sid, "assistant", final_text, meta=None)
         return {"answer": final_text, "data": rows, "text": final_text, "session_id": sid}
 
+    # Explicit raw fallback: try one query against GA4/Ads raw when marts returned no valid result
+    if tables_tried:
+        raw_result = _try_raw_fallback(message, organization_id, cid)
+        if raw_result is not None:
+            raw_rows, raw_sql = raw_result
+            logger.info("Copilot raw fallback success | row_count=%d", len(raw_rows))
+            final_text = _format_answer(message, raw_sql, raw_rows, organization_id, sid, from_raw=True)
+            store.append(organization_id, sid, "user", message)
+            store.append(organization_id, sid, "assistant", final_text, meta=None)
+            return {"answer": final_text, "data": raw_rows, "text": final_text, "session_id": sid}
+
     copilot_metrics.increment("copilot.query_empty_results_total")
     # Show first query in full (up to 500 chars) so WHERE clause is visible for debugging
     tables_msg = (tables_tried[0] + ("..." if len(tables_tried[0]) >= 500 else "")) if tables_tried else "none"
@@ -326,3 +412,161 @@ def chat(
     store.append(organization_id, sid, "user", message)
     store.append(organization_id, sid, "assistant", final_text, meta=None)
     return {"answer": final_text, "data": [], "text": final_text, "session_id": sid}
+
+
+def _serialize_data_for_sse(raw_data: list) -> list:
+    """Ensure data is JSON-serializable for SSE (e.g. date/datetime to string)."""
+    out = []
+    for r in raw_data or []:
+        if not isinstance(r, dict):
+            continue
+        row = {}
+        for k, v in r.items():
+            row[k] = v.isoformat() if hasattr(v, "isoformat") else v
+        out.append(row)
+    return out
+
+
+def chat_stream(
+    organization_id: str,
+    message: str,
+    *,
+    session_id: Optional[str] = None,
+    client_id: Optional[int] = None,
+) -> Generator[dict[str, Any], None, None]:
+    """
+    Same flow as chat() but yields SSE-style events: phase (status) then done or error.
+    Events: {"phase": "analyzing", "message": "..."}, {"phase": "discovering", "message": "..."},
+    {"phase": "generating_sql", "message": "..."}, {"phase": "running_query", "message": "..."},
+    {"phase": "formatting", "message": "..."}, {"phase": "done", "answer", "data", "session_id"},
+    or {"phase": "error", "error": "..."}.
+    """
+    try:
+        from .session_memory import get_session_store
+        from .planner import analyze as planner_analyze
+    except Exception as e:
+        logger.exception("Copilot imports failed")
+        sid = session_id or str(uuid.uuid4())
+        yield {"phase": "error", "error": str(e)[:200], "session_id": str(sid)}
+        return
+
+    store = get_session_store()
+    sid = str(session_id or uuid.uuid4())
+    try:
+        cid = int(client_id) if client_id is not None else 1
+    except (TypeError, ValueError):
+        cid = 1
+
+    msg_clean = (message or "").strip()
+    if not msg_clean:
+        yield {"phase": "done", "answer": "Please type a message to get a response.", "data": [], "session_id": sid}
+        return
+    if len(msg_clean) > 32000:
+        msg_clean = msg_clean[:32000] + "... [truncated]"
+    message = msg_clean
+
+    if _is_simple_greeting(message):
+        reply = "Hi! I can help with marketing analytics. Ask about revenue, top products, channels, ROAS, sessions, conversions, or any metric we have in the warehouse."
+        store.append(organization_id, sid, "user", message)
+        store.append(organization_id, sid, "assistant", reply, meta=None)
+        yield {"phase": "done", "answer": reply, "data": [], "session_id": sid}
+        return
+
+    try:
+        yield {"phase": "analyzing", "message": "Understanding your question…"}
+        max_retries = get_max_retries()
+        copilot_metrics.increment("copilot.planner_attempts_total")
+        plan = planner_analyze(message, context=None, client_id=cid, organization_id=organization_id)
+        candidates = list(plan.get("candidates") or [])
+
+        yield {"phase": "discovering", "message": "Finding relevant tables…"}
+        if not candidates:
+            logger.info("Copilot no candidates | intent=%s", plan.get("intent", ""))
+            copilot_metrics.increment("copilot.query_empty_results_total")
+            final_text = (
+                "I couldn't find any tables in the warehouse for that question. "
+                "Check that BigQuery discovery is configured (project and datasets) and try again."
+            )
+            store.append(organization_id, sid, "user", message)
+            store.append(organization_id, sid, "assistant", final_text, meta=None)
+            yield {"phase": "done", "answer": final_text, "data": [], "session_id": sid}
+            return
+
+        valid_result = None
+        sql_used = None
+        tables_tried: list[str] = []
+        attempt = 0
+        previous_sql: Optional[str] = None
+        previous_error: Optional[str] = None
+
+        while attempt < max_retries:
+            attempt += 1
+            yield {"phase": "generating_sql", "message": "Writing SQL query…"}
+            system, user_content = _build_sql_prompt(message, candidates, cid, previous_sql=previous_sql, previous_error=previous_error)
+            sql_used = _llm_generate_sql(system, user_content)
+            if not sql_used:
+                previous_error = "LLM did not return a valid SQL query."
+                logger.warning("Copilot LLM returned no SQL on attempt %s", attempt)
+                continue
+            tables_tried.append(sql_used[:500])
+            yield {"phase": "running_query", "message": "Running query…"}
+            try:
+                out = run_bigquery_sql(sql_used, organization_id=organization_id, client_id=cid)
+            except Exception as e:
+                previous_sql = sql_used
+                previous_error = str(e)[:300]
+                logger.warning("Copilot run_bigquery_sql failed: %s", e)
+                continue
+            if out.get("error"):
+                previous_sql = sql_used
+                previous_error = (out.get("error") or "Unknown error")[:300]
+                continue
+            allow_empty = _allow_empty_for_question(message)
+            is_valid, _reason = validate_result(out, message, allow_empty=allow_empty)
+            if is_valid:
+                valid_result = out
+                if attempt > 1:
+                    copilot_metrics.increment("copilot.fallback_success_total")
+                break
+            previous_sql = sql_used
+            previous_error = (
+                "Query returned no rows or invalid result. "
+                "Try a different table (e.g. raw events or fct_sessions), a wider time window, or fewer WHERE filters."
+            )
+
+        if valid_result is not None and sql_used:
+            rows = valid_result.get("rows") or []
+            yield {"phase": "formatting", "message": "Formatting results…"}
+            final_text = _format_answer(message, sql_used, rows, organization_id, sid)
+            store.append(organization_id, sid, "user", message)
+            store.append(organization_id, sid, "assistant", final_text, meta=None)
+            yield {"phase": "done", "answer": final_text, "data": _serialize_data_for_sse(rows), "session_id": sid}
+            return
+
+        if tables_tried:
+            yield {"phase": "running_query", "message": "Trying raw data fallback…"}
+            raw_result = _try_raw_fallback(message, organization_id, cid)
+            if raw_result is not None:
+                raw_rows, raw_sql = raw_result
+                logger.info("Copilot raw fallback success | row_count=%d", len(raw_rows))
+                yield {"phase": "formatting", "message": "Formatting results…"}
+                final_text = _format_answer(message, raw_sql, raw_rows, organization_id, sid, from_raw=True)
+                store.append(organization_id, sid, "user", message)
+                store.append(organization_id, sid, "assistant", final_text, meta=None)
+                yield {"phase": "done", "answer": final_text, "data": _serialize_data_for_sse(raw_rows), "session_id": sid}
+                return
+
+        copilot_metrics.increment("copilot.query_empty_results_total")
+        tables_msg = (tables_tried[0] + ("..." if len(tables_tried[0]) >= 500 else "")) if tables_tried else "none"
+        logger.info("Copilot no valid result | intent=%s sql_tried=%s", plan.get("intent", ""), tables_tried)
+        final_text = (
+            f"I couldn't find relevant data for that question. Queries tried: {tables_msg}. "
+            "Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS)."
+        )
+        store.append(organization_id, sid, "user", message)
+        store.append(organization_id, sid, "assistant", final_text, meta=None)
+        yield {"phase": "done", "answer": final_text, "data": [], "session_id": sid}
+    except Exception as e:
+        logger.exception("Copilot stream failed")
+        yield {"phase": "error", "error": str(e)[:300], "session_id": sid}
+        return

@@ -10,15 +10,17 @@ import time
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
+
+from ..auth import get_organization_id, require_any_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analysis", tags=["analysis"])
+router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(require_any_auth)])
 
 
 def _get_organization_id(request: Request) -> str:
-    return request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "default"
+    return get_organization_id(request)
 
 
 def _resolve_dates(

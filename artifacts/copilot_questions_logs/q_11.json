@@ -1,6 +1,6 @@
 {
   "question": "Which channel acquires customers with the highest 90-day LTV \u2014 not first order, total 90-day spend",
-  "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+  "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  first_touch_utm_source AS channel,\n  COUNT(DISTINCT user_pseudo_id) AS customer_count,\n  ROUND(AVG(revenue_90d), 2) AS avg_90d_ltv,\n  ROUND(SUM(revenue_90d), 2) AS total_90d_revenue\nFROM `hypeon-ai-prod.hypeon_marts.fct_user_ltv`\nWHERE revenue_90d IS NOT NULL\nGROUP BY first_touch_utm_source\nORDER BY avg_90d_ltv DESC\nLIMIT 500. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
   "data_rows": 0,
   "session_id": "sim-10",
   "success": false

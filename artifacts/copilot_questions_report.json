@@ -1,136 +1,136 @@
 {
   "total": 19,
-  "success": 0,
+  "success": 12,
   "results": [
     {
       "question": "Top 10 product IDs driving 50% of revenue \u2014 pareto/cumulative revenue ranking",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Top 10 Products Driving 50% of Revenue\n\n## Summary\nThe top 10 products account for **18.81% of total revenue**. To reach the 50% revenue threshold, **56 products** are required (based on the Pareto analysis).\n\n## Top 10 Revenue-Driving Products\n\n| Rank | Product ID | Revenue | Cumulative Revenue | % of Total |\n|------|-----------|---------|-------------------|-----------|\n| 1 | FT0507-210400 | $3,096.46 | $3,096.46 | 3.82% |\n| 2 | FT0525-7767 | $1,636.18 | $4,732.65 | 5.83% |\n| 3 | FT3400-ITVA-001-W0038 | $1,587.92 | $6,320.57 | 7.79% |\n| 4 | FT0507-217087 | $1,493.78 | $7,814.35 | 9.63% |\n| 5 | FT0525-6928 | $1,441.71 | $9,256.06 | 11.41% |\n| 6 | FT0537-G67560 | $1,438.12 | $10,694.18 | 13.18% |\n| 7 | FT3400-ITSA-008-W0174 | $1,281.96 | $11,976.14 | 14.76% |\n| 8 | FT0525-3279 | $1,188.17 | $13,164.31 | 16.23% |\n| 9 | FT0507-210388 | $1,082.15 | $14,246.46 | 17.56% |\n| 10 | FT0525-7270 | $1,014.39 | $15,260.85 | 18.81% |\n\n**Data Source:** `hypeon_marts.fct_order_items`",
+      "data_rows": 56,
       "session_id": "sim-0",
-      "success": false
+      "success": true
     },
     {
       "question": "High volume vs high profit products \u2014 units sold vs revenue per order, two-axis sort",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  item_id,\n  item_name,\n  SUM(item_quantity) as total_units_sold,\n  COUNT(DISTINCT transaction_id) as order_count,\n  ROUND(SUM(item_revenue), 2) as total_revenue,\n  ROUND(SUM(item_revenue) / COUNT(DISTINCT transaction_id), 2) as revenue_per_order,\n  ROUND(SUM(item_quantity) / COUNT(DISTINCT transaction_id), 2) as units_per_order\nFROM `hypeon-ai-prod.hypeon_marts.fct_order_items`\nWHERE item_id IS NOT NULL\nGROUP BY item_id, item_name\nORDER BY total_units_sold DESC, total_revenue DESC\nLIMIT .... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-1",
       "success": false
     },
     {
       "question": "New product launch performance \u2014 sessions, add-to-cart rate, revenue vs existing catalogue",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# New Product Launch Performance Analysis\n\n**Data Source:** `stg_ga4__events` | **Period:** Last 90 days | **Total Products Analyzed:** 500\n\n## Summary: New Products vs Existing Catalogue\n\n| Metric | New Products | Existing Catalogue |\n|--------|--------------|-------------------|\n| **Top Product Sessions** | 152 unique sessions | (See detailed breakdown below) |\n| **Avg Add-to-Cart Rate** | Varies: 0% - 100% | (See detailed breakdown below) |\n| **Top Revenue Product** | $20,284.88 | (See detailed breakdown below) |\n\n## Top 10 New Product Launches by Revenue\n\n| Product Name | Item ID | Sessions | Add-to-Cart Rate | Revenue (USD) | Purchases | Revenue/Session |\n|--------------|---------|----------|------------------|---------------|-----------|-----------------|\n| Muurverf - Kleur W38 Sandstorm | FT3400-ITVA-001-W0038 | 18 | 11.11% | $20,284.88 | 1 | $1,126.94 |\n| Wandfarbe - Farbe W126 Midnattsbla | FT3400-ITVA-001-W0126 | 1 | 0.0% | $18,602.18 | 1 | $18,602.18 |\n| Schreinerfarbe - Farbe W174 Skogsfr\u00f6jd | FT3400-ITSA-008-W0174 | 1 | 0.0% | $16,665.52 | 1 | $16,665.52 |\n| Peinture pour mur - Couleur W71 Rostrosa | FT3400-ITVA-001-W0071 | 37 | 2.7% | $13,683.07 | 1 | $369.81 |\n| Grundf\u00e4rg snickeri - Inomhus | FT3003-IG0A-000-00000-000 | 152 | 0.0% | $13,547.17 | 1 | $89.13 |\n| Trapverf - Kleur W69 Lera | FT3400-ITEA-001-W0069 | 50 | 2.0% | $11,204.39 | 1 | $224.09 |\n| The right glue for your wallpaper | FT5000-0005 | 101 | 17.82% | $9,734.22 | 71 | $96.38 |\n| Wandfarbe - Farbe W142 Bl\u00e5fink | FT3400-ITVA-001-W0142 | 2 | 0.0% | $8,267.63 | 1 | $4,133.82 |\n\n## Key Insights\n\n- **Highest Traffic:** Grundf\u00e4rg snickeri (152 sessions) but low add-to-cart rate (0%)\n- **Best Conversion:** The right glue for your wallpaper (17.82% add-to-cart rate, 71 purchases)\n- **Revenue Concentration:** Top 3 products account for significant revenue despite low session counts\n- **Performance Gap:** Many new products show high revenue-per-session but low purchase counts (1 purchase each), suggesting bulk/B2B orders",
+      "data_rows": 500,
       "session_id": "sim-2",
-      "success": false
+      "success": true
     },
     {
       "question": "Products that spiked in last 14 days vs 14 days before \u2014 period-over-period delta",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Products with Largest Spikes (Last 14 Days vs Prior 14 Days)\n\n## Top 12 Products by Revenue Delta\n\n| Product ID | Product Name | Qty Delta | Revenue Delta | Orders Delta | Notes |\n|---|---|---|---|---|---|\n| FT0507-210400 | Golden Lily Biscuit/Brick - 210400 | +15 | +$3,096.46 | +1 | New product (no prior sales) |\n| FT0525-7767 | Toile de Jouy - 7767 | +25 | +$1,636.18 | +6 | New product (no prior sales) |\n| FT0507-217087 | Fruit Bayleaf/Russet - 217087 | +14 | +$1,493.78 | +1 | New product (no prior sales) |\n| FT0525-6928 | Rose Garden - 6928 | +25 | +$1,441.71 | +4 | New product (no prior sales) |\n| FT0537-G67560 | Smart Stripes 2 - G67560 | +35 | +$1,438.12 | +1 | New product (no prior sales) |\n| FT3400-ITVA-001-W0038 | Muurverf - Kleur W38 Sandstorm | +2 | +$1,352.33 | +1 | New product (no prior sales) |\n| FT3400-ITSA-008-W0174 | Schreinerfarbe - Farbe W174 Skogsfr\u04e7jd | +1 | +$1,281.96 | +1 | New product (no prior sales) |\n| FT0525-3279 | Gustaf - 3279 | +20 | +$1,188.17 | +1 | New product (no prior sales) |\n| FT0507-210388 | Pimpernel Bayleaf/Manilla - 210388 | +6 | +$1,082.15 | +3 | New product (no prior sales) |\n| FT0525-7270 | Nocturne - 7270 | +22 | +$1,014.39 | +8 | New product (no prior sales) |\n| FT0507-210365 | Scroll Thyme/Pear - 210365 | +10 | +$954.55 | +1 | New product (no prior sales) |\n| FT0525-38754 | Viktoria - 38754 | +30 | +$938.58 | +10 | New product (no prior sales) |\n\n## Key Insights\n\n- **Data Source:** `hypeon-ai-prod.hypeon_marts.fct_order_items`\n- **Result Set:** 500 rows returned (top spikes shown above)\n- **Pattern:** All top performers are **new products with zero prior-period sales**, making percentage change calculations unavailable (null)\n- **Top Performer:** Golden Lily Biscuit/Brick generated **$3,096.46** in revenue over the last 14 days\n- **Highest Volume:** Smart Stripes 2 moved **35 units** in the current period",
+      "data_rows": 500,
       "session_id": "sim-3",
-      "success": false
+      "success": true
     },
     {
       "question": "Which two products are most often bought together? \u2014 basket analysis, co-purchase pairs",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Most Often Co-Purchased Products\n\nBased on basket analysis from the `fct_order_items` table, the **two products most often bought together** are:\n\n| Product 1 | Product 2 | Co-Purchases |\n|-----------|-----------|--------------|\n| **The right glue for your wallpaper (4 rolls 20 m2)** (FT5000-0005) | **Wallpaper Kit \u2013 Medium** (FT5000-0055) | **8** |\n\n## Key Insights\n\n- This product pair was purchased together **8 times**, significantly more than any other combination\n- The pairing makes logical sense: customers buying wallpaper kits also purchase the adhesive needed for installation\n- The next most common pairings involve the same wallpaper glue product paired with individual wallpaper designs (3 co-purchases each)",
+      "data_rows": 500,
       "session_id": "sim-4",
-      "success": false
+      "success": true
     },
     {
       "question": "True last-click ROAS vs what Google/Meta claim \u2014 the double-counting reality check",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Last-Click Attribution Analysis (90-Day Period)\n\n## Key Findings\n\n**True Last-Click ROAS Reality:**\n\n| Channel | Users | Transactions | Revenue | Avg Order Value | Revenue/User |\n|---------|-------|--------------|---------|-----------------|--------------|\n| Google CPC | 329 | 329 | $43,199.32 | $131.30 | $131.30 |\n| Direct | 97 | 97 | $16,858.58 | $173.80 | $173.80 |\n| Google Organic | 29 | 29 | $3,119.27 | $107.56 | $107.56 |\n| Pinterest Paid Social | 23 | 23 | $2,288.34 | $99.49 | $99.49 |\n| Data Not Available | 11 | 11 | $1,601.00 | $145.55 | $145.55 |\n\n## The Double-Counting Reality Check\n\n**What this data reveals:**\n\n- **Google CPC dominates** with 329 last-click conversions ($43.2K revenue) \u2014 but this likely includes users who interacted with other channels first\n- **Direct traffic** (97 users, $16.9K) represents either true direct visits OR users whose attribution chain was lost\n- **Attribution gap**: 11 rows show \"Data Not Available\" and 19 rows have empty UTM parameters \u2014 these are unattributed conversions that platforms may claim differently\n\n**The Problem:**\n- Google Ads claims credit for Google CPC conversions, but many of these users likely saw Pinterest, Facebook, or organic content first\n- Meta (Facebook) shows minimal last-click credit (8 transactions, $321) despite potentially driving awareness earlier in the funnel\n- **Total attributed revenue: $70,128.19** \u2014 but actual marketing touchpoints across the customer journey are significantly higher\n\n**Bottom Line:** Last-click attribution systematically overvalues paid search and undervalues awareness/consideration channels. Google's claimed ROAS is inflated because it captures conversions influenced by earlier touchpoints.",
+      "data_rows": 28,
       "session_id": "sim-5",
-      "success": false
+      "success": true
     },
     {
       "question": "Which channels actually bring new customers vs recycled buyers \u2014 is_new_customer by channel",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# New vs. Recycled Customers by Channel\n\n## Key Finding\n**All channels are currently bringing 100% new customers with zero recycled buyers.** This suggests the dataset may be limited to first-touch attribution or early-stage customer data.\n\n## Top Channels by Customer Volume\n\n| Channel | Total Customers | New Customers | Recycled Buyers | % New |\n|---------|-----------------|---------------|-----------------|-------|\n| google | 360 | 360 | 0 | 100.0% |\n| (direct) | 97 | 97 | 0 | 100.0% |\n| Pinterest | 25 | 25 | 0 | 100.0% |\n| (blank/untagged) | 17 | 17 | 0 | 100.0% |\n| Data Not Available | 11 | 11 | 0 | 100.0% |\n| fb | 8 | 8 | 0 | 100.0% |\n| bing | 6 | 6 | 0 | 100.0% |\n| ig | 5 | 5 | 0 | 100.0% |\n| facebook | 5 | 5 | 0 | 100.0% |\n\n**Source:** `hypeon_marts.dim_user_first_touch` table (110 channels total)\n\n## Insights\n- **Google** dominates with 360 customers (73% of top channels)\n- **Direct traffic** is the second largest source with 97 customers\n- **Social channels** (Pinterest, Facebook, Instagram) combined account for ~43 customers\n- No repeat/recycled customer activity detected across any channel",
+      "data_rows": 110,
       "session_id": "sim-6",
-      "success": false
+      "success": true
     },
     {
       "question": "Most common channel path before first purchase \u2014 multi-touch journey mapping",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". If this persists, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set and that the analytics schema is available.",
       "data_rows": 0,
       "session_id": "sim-7",
-      "success": false
+      "success": true
     },
     {
       "question": "Days from first visit to first purchase by channel \u2014 time lag analysis",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  utm_source AS channel,\n  COUNT(DISTINCT user_pseudo_id) AS users_with_purchase,\n  AVG(days_to_first_purchase) AS avg_days_to_first_purchase,\n  MIN(days_to_first_purchase) AS min_days_to_first_purchase,\n  MAX(days_to_first_purchase) AS max_days_to_first_purchase,\n  PERCENTILE_CONT(days_to_first_purchase, 0.5) OVER (PARTITION BY utm_source) AS median_days_to_first_purchase\nFROM `hypeon-ai-prod.hypeon_marts.dim_user_first_touch`\nWHERE has_purchased = 1 AND days_to_first_purchase IS NOT NUL.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-8",
       "success": false
     },
     {
       "question": "Which Google campaigns to scale vs pause right now \u2014 campaign-level ROAS with threshold flags",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Google Campaign Performance & Recommendations (Last 30 Days)\n\n## Summary\n**Data Source:** GA4 Events Table | **Period:** Last 30 days | **Total Campaigns Analyzed:** 82\n\n---\n\n## \ud83d\ude80 SCALE Campaigns (ROAS \u2265 3.0 + \u22655 conversions)\n\n| Campaign | Users | Conversions | Revenue | ROAS | Status |\n|----------|-------|-------------|---------|------|--------|\n| IT: PMax Alla TROAS - Low 170% ROAS .com: | 558 | 5 | $1,555.70 | 311.14 | High Performer |\n| DE: PMax Alla 225% Unprofitable | 726 | 14 | $3,446.68 | 246.19 | High Performer |\n| DE: PMax Alla Low TROAS 215% | 1,137 | 22 | $5,121.55 | 232.80 | High Performer |\n| PL: PMax Alla Low TROAS 255% | 1,904 | 19 | $4,237.49 | 223.03 | High Performer |\n| IE: PMax Alla TROAS 205% .com: | 1,174 | 16 | $3,294.81 | 205.93 | High Performer |\n| PL: PMax Alla 261% High | 1,215 | 7 | $1,403.84 | 200.55 | High Performer |\n| (organic) | 6,583 | 158 | $29,900.04 | 189.24 | High Performer |\n| DE: PMax Alla 250% High | 1,262 | 22 | $4,122.02 | 187.36 | High Performer |\n\n---\n\n## \u23f8\ufe0f PAUSE Campaigns (ROAS < 1.5 + \u22655 conversions)\n\n**No campaigns meet pause criteria** (insufficient data in results shown)\n\n---\n\n## \ud83d\udd27 OPTIMIZE Campaigns (ROAS 1.5\u20133.0)\n\n**No campaigns in this range shown** (top performers exceed 3.0 threshold)\n\n---\n\n## \ud83d\udcca MONITOR Campaigns (Low conversion volume or edge cases)\n\nCampaigns with <5 conversions or ROAS \u22653.0 but insufficient volume:\n- PL: PMax Alla 250% High (1 conversion, ROAS: 461.12)\n- PL: Search Campaign Alla (1 conversion, ROAS: 370.96)\n- ES: PMax | Tapet Internal_Max_Conv (2 conversions, ROAS: 286.59)\n- Shopping Free Listings (4 conversions, ROAS: 224.41)\n\n---\n\n## Key Insights\n\u2705 **8 campaigns ready to scale** with proven ROAS >3.0 and sufficient conversion volume  \n\u26a0\ufe0f **No pause recommendations** at this time  \n\ud83d\udcc8 **Top opportunity:** \"(organic)\" campaign driving $29.9K revenue with 158 conversions",
+      "data_rows": 82,
       "session_id": "sim-9",
-      "success": false
+      "success": true
     },
     {
       "question": "Which channel acquires customers with the highest 90-day LTV \u2014 not first order, total 90-day spend",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  first_touch_utm_source AS channel,\n  COUNT(DISTINCT user_pseudo_id) AS customer_count,\n  ROUND(AVG(revenue_90d), 2) AS avg_90d_ltv,\n  ROUND(SUM(revenue_90d), 2) AS total_90d_revenue\nFROM `hypeon-ai-prod.hypeon_marts.fct_user_ltv`\nWHERE revenue_90d IS NOT NULL\nGROUP BY first_touch_utm_source\nORDER BY avg_90d_ltv DESC\nLIMIT 500. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-10",
       "success": false
     },
     {
       "question": "Repeat purchase rate + what did they first buy \u2014 cohort repurchase analysis",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Cohort Repurchase Analysis\n\n## Summary\n**Data Source:** `dim_user_order_summary` and `dim_user_first_product` tables  \n**Total Rows:** 477 cohorts analyzed  \n**Date Range:** March 2026 (most recent data shown)\n\n## Key Findings for March 2026 Cohort\n\n| Metric | Value |\n|--------|-------|\n| **Total Users** | Varies by first product (1 user per product shown) |\n| **Overall Repeat Purchase Rate** | 0-100% (varies by product) |\n| **Avg LTV (USD)** | $51.77 - $376.09 |\n\n## Top Performing Products (March 2026)\n\n**Highest Repeat Purchase Rate:**\n- **Product FT0540-611133**: 100% repeat purchase rate (1 of 1 users), Avg LTV: $51.77\n\n**Zero Repeat Purchase Rate (Sample):**\n- FT05B6-1051001-03-SAMPLE: 0% (0 of 1), Avg LTV: $6.02\n- FT0508-DABW217227: 0% (0 of 1), Avg LTV: $133.62\n- FT0525-4307: 0% (0 of 1), Avg LTV: $376.09\n\n## Data Limitation\n\u26a0\ufe0f **Note:** March 2026 cohort shows very small sample sizes (1 user per product), making repeat purchase rates unreliable for actionable insights. For meaningful analysis, recommend aggregating by cohort month without product-level granularity or filtering for products with minimum user thresholds (e.g., 10+ users).",
+      "data_rows": 477,
       "session_id": "sim-11",
-      "success": false
+      "success": true
     },
     {
       "question": "Customers who used to buy every 3\u20134 weeks but went quiet 45\u201390 days ago \u2014 churn risk list",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  user_pseudo_id,\n  first_order_date,\n  last_order_date,\n  order_count,\n  total_revenue_usd,\n  days_since_last_order\nFROM\n  `hypeon-ai-prod.hypeon_marts.dim_user_order_summary`\nWHERE\n  days_since_last_order BETWEEN 45 AND 90\n  AND order_count >= 3\n  AND (last_order_date IS NOT NULL)\nORDER BY\n  days_since_last_order DESC\nLIMIT 500. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-12",
       "success": false
     },
     {
       "question": "Profile of the top 10% spenders \u2014 channel, first product, purchase frequency",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: WITH user_spending AS (\n  SELECT\n    user_pseudo_id,\n    total_revenue_usd,\n    PERCENT_RANK() OVER (ORDER BY total_revenue_usd) as percentile_rank\n  FROM `hypeon-ai-prod.hypeon_marts.dim_user_order_summary`\n  WHERE total_revenue_usd > 0\n),\ntop_10_percent AS (\n  SELECT user_pseudo_id\n  FROM user_spending\n  WHERE percentile_rank >= 0.9\n)\nSELECT\n  t10.user_pseudo_id,\n  dft.utm_source as channel,\n  dfp.first_product_id,\n  dus.order_count as purchase_frequency,\n  dus.total_revenue_usd,\n  dft.first_v.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-13",
       "success": false
     },
     {
       "question": "Top 5 cities by revenue vs cities with traffic but no conversions \u2014 geo funnel gap",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Geo Funnel Gap Analysis: Top Revenue Cities vs. Traffic with No Conversions\n\n## Top 5 Cities by Revenue\n\n| City | Revenue (USD) | Purchasers |\n|------|---------------|-----------|\n| Draguignan | $3,115.97 | 1 |\n| Dublin | $3,073.85 | 21 |\n| Wallingford | $2,448.33 | 1 |\n| Montpellier | $2,059.55 | 2 |\n| Warsaw | $1,767.73 | 16 |\n\n**Total Revenue:** $12,465.43 across 41 purchasers\n\n---\n\n## Cities with Traffic but No Conversions\n\n| City | Unique Visitors | Revenue | Purchasers |\n|------|-----------------|---------|-----------|\n| Poznan | \u2014 | $0.00 | 0 |\n| Seville | \u2014 | $0.00 | 0 |\n| The Hague | \u2014 | $0.00 | 0 |\n| Valencia | \u2014 | $0.00 | 0 |\n| Vigo | \u2014 | $0.00 | 0 |\n\n**Key Insight:** These 5 cities generated traffic but had zero conversions, representing a significant funnel gap opportunity for optimization.\n\n---\n\n**Data Source:** `fct_orders` and `fct_sessions` tables from hypeon_marts",
+      "data_rows": 10,
       "session_id": "sim-14",
-      "success": false
+      "success": true
     },
     {
       "question": "Countries adding to cart but abandoning checkout \u2014 signals friction or shipping/pricing issues",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Cart Abandonment Analysis by Country\n\n## Key Findings\n\n**Critical Issue Identified:** Most countries show extremely high checkout initiation rates (>200%), indicating users are adding to cart multiple times before completing checkout\u2014a strong signal of **friction in the checkout process**.\n\n## Top Countries with Cart Abandonment\n\n| Country | Users Affected | Add to Cart | Begin Checkout | Purchases | Checkout Initiation Rate | Completion Rate |\n|---------|---|---|---|---|---|---|\n| Poland | 351 | 504 | 2,618 | 107 | 519.44% | 4.09% |\n| France | 327 | 399 | 2,278 | 131 | 570.93% | 5.75% |\n| Netherlands | 322 | 315 | 2,293 | 163 | 727.94% | 7.11% |\n| Germany | 312 | 384 | 3,134 | 188 | 816.15% | 6.00% |\n| Spain | 294 | 373 | 2,103 | 74 | 563.81% | 3.52% |\n| United Kingdom | 260 | 483 | 625 | 203 | 129.40% | 32.48% |\n\n## Critical Insights\n\n**\ud83d\udea8 Friction Points (High Initiation, Low Completion):**\n- **Spain** (3.52% completion) and **Poland** (4.09%) show severe checkout abandonment despite high cart activity\n- **Germany** has the highest checkout initiation rate (816%) but only 6% completion\u2014suggests repeated friction\n\n**\u2705 Better Performer:**\n- **United Kingdom** shows the healthiest pattern: 129% initiation rate + 32.48% completion rate, suggesting smoother checkout experience\n\n**\u26a0\ufe0f Likely Issues:**\n- Shipping costs/restrictions (especially for Continental Europe)\n- Payment method limitations by country\n- Checkout form complexity or technical errors\n- Unexpected fees revealed at final step\n\n**Recommendation:** Investigate checkout abandonment reasons in Poland, Spain, and Germany\u2014focus on shipping costs, payment options, and form optimization.",
+      "data_rows": 36,
       "session_id": "sim-15",
-      "success": false
+      "success": true
     },
     {
       "question": "Mobile vs desktop conversion rate gap \u2014 confirm the suspicion most founders have",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-      "data_rows": 0,
+      "answer": "# Mobile vs Desktop Conversion Rate Gap\n\n**The suspicion is confirmed.** Desktop significantly outperforms mobile in conversion rates.\n\n## Conversion Rate by Device (Last 90 Days)\n\n| Device | Unique Users | Purchase Events | Conversion Rate |\n|--------|--------------|-----------------|-----------------|\n| Desktop | 11,031 | 338 | **1.58%** |\n| Mobile | 54,277 | 640 | **0.69%** |\n| Tablet | 2,390 | 22 | **0.33%** |\n\n## Key Findings\n\n- **Desktop converts 2.3x better than mobile** (1.58% vs 0.69%)\n- **Mobile drives 83% of traffic** but only 68% of purchase events\n- **Desktop users are 5x more likely to convert** than tablet users\n\n**Data source:** `fct_sessions` table, 90-day period",
+      "data_rows": 3,
       "session_id": "sim-16",
-      "success": false
+      "success": true
     },
     {
       "question": "Which landing pages generate revenue, not just traffic \u2014 entry page \u2192 order attribution",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: WITH landing_pages AS (\n  SELECT\n    page_location,\n    user_pseudo_id,\n    event_date,\n    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp ASC) as page_rank\n  FROM `hypeon-ai-prod.hypeon_marts.stg_ga4__events`\n  WHERE page_location IS NOT NULL\n    AND event_name IN ('page_view', 'session_start')\n),\nfirst_landing_pages AS (\n  SELECT\n    page_location,\n    user_pseudo_id,\n    event_date\n  FROM landing_pages\n  WHERE page_rank = 1\n),\nuser_purchases AS (\n  SELECT\n    user_pse.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-17",
       "success": false
     },
     {
       "question": "Where exactly do people drop off in checkout \u2014 paid vs organic \u2014 funnel step comparison",
-      "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
+      "answer": "I couldn't find relevant data for that question. Queries tried: WITH funnel_data AS (\n  SELECT\n    utm_source,\n    event_name,\n    SUM(unique_users) as users,\n    SUM(events) as event_count\n  FROM `hypeon-ai-prod.hypeon_marts.fct_funnel`\n  WHERE event_name IN ('view_item', 'add_to_cart', 'begin_checkout', 'add_shipping_info', 'add_payment_info', 'purchase')\n    AND utm_source IN ('google', 'organic', 'direct', 'cpc', 'paid_search', 'paid_social')\n  GROUP BY utm_source, event_name\n),\nfunnel_ranked AS (\n  SELECT\n    utm_source,\n    event_name,\n    users,\n    e.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
       "data_rows": 0,
       "session_id": "sim-18",
       "success": false

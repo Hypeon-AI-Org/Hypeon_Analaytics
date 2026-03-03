@@ -154,12 +154,12 @@ export default function DashboardHome() {
   const spPct = (spTrendNum * 100).toFixed(1)
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/50">
       <PageReportHeader days={30} onExport={() => {}} />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative rounded-xl hover:shadow-lg transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <LineChartIcon size={20} strokeWidth={2} />
           </div>
@@ -172,7 +172,7 @@ export default function DashboardHome() {
             {revTrend > 0 ? `+${revPct}%` : revTrend < 0 ? `${revPct}%` : '0.0%'} vs. previous period
           </p>
         </div>
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative rounded-xl hover:shadow-lg transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <Wallet size={20} strokeWidth={2} />
           </div>
@@ -185,7 +185,7 @@ export default function DashboardHome() {
             {spTrendNum > 0 ? `+${spPct}%` : spTrendNum < 0 ? `${spPct}%` : '0.0%'} vs. previous period
           </p>
         </div>
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative rounded-xl hover:shadow-lg transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <Star size={20} strokeWidth={2} />
           </div>
@@ -194,7 +194,7 @@ export default function DashboardHome() {
           <p className="mt-1 text-xs text-slate-500">Target: 5.50x</p>
           <p className={`mt-0.5 flex items-center gap-1 text-xs font-medium text-emerald-600`}>+4.1%</p>
         </div>
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative rounded-xl hover:shadow-lg transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <ShoppingCart size={20} strokeWidth={2} />
           </div>
@@ -209,7 +209,7 @@ export default function DashboardHome() {
 
       {/* Trend charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-card p-5">
+        <div className="glass-card p-5 rounded-xl hover:shadow-lg transition-shadow">
           <h3 className="text-sm font-semibold text-slate-800">Revenue Trend</h3>
           <p className="text-xs text-slate-500 mt-0.5">Daily revenue performance</p>
           <div className="h-64 mt-4">
@@ -229,7 +229,7 @@ export default function DashboardHome() {
             <span className="text-xs text-slate-600">Revenue</span>
           </div>
         </div>
-        <div className="glass-card p-5">
+        <div className="glass-card p-5 rounded-xl hover:shadow-lg transition-shadow">
           <h3 className="text-sm font-semibold text-slate-800">Spend Trend</h3>
           <p className="text-xs text-slate-500 mt-0.5">Daily ad spend distribution</p>
           <div className="h-64 mt-4">
@@ -278,7 +278,7 @@ export default function DashboardHome() {
         </DashboardRendererErrorBoundary>
       )}
 
-      <div className="glass-card p-5">
+      <div className="glass-card p-5 rounded-xl">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Copilot summary</h3>
           <button

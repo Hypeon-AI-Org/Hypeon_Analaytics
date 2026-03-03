@@ -67,7 +67,11 @@ def main() -> int:
         "hints": (
             "fct_sessions: Use event_name IN ('view_item','view_item_list') for item views; "
             "item_id for product; utm_source for traffic source (e.g. utm_source LIKE '%google%' for 'from Google'). "
-            "Always add a date filter to limit scan: WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY) (or event_date if the table has it)."
+            "Always add a date filter to limit scan: WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY) (or event_date if the table has it). "
+            "Funnel (drop-off, checkout): use event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'); break down by device or utm_source for paid vs organic. "
+            "Landing/entry page: use page_location; identify first event per session (e.g. ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp)). "
+            "Churn/LTV/repeat: fct_user_ltv (revenue_7d, revenue_30d, revenue_90d), dim_user_order_summary (days_since_last_order, order_count), dim_user_first_product (first_product_id). "
+            "If a query returns 0 rows, it may mean no one in that segment (e.g. no churn in 45-90 days); report that and suggest a shorter window."
         ),
         "datasets": {},
     }

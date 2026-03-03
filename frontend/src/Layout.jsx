@@ -38,14 +38,14 @@ function NavSection({ items, path, navigate }) {
             type="button"
             onClick={() => navigate(item.path)}
             aria-current={active ? 'page' : undefined}
-            className={`w-full flex items-center gap-3 rounded-none pl-3 pr-3 py-2.5 text-sm font-medium transition-colors border-l-2 ${
+            className={`w-full flex items-center gap-3 rounded-lg pl-3 pr-3 py-2.5 text-sm font-medium transition-all border-l-2 ${
               active
-                ? 'border-accent bg-white/5 text-white'
+                ? 'border-brand-400 bg-white/10 text-white'
                 : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200'
             }`}
           >
             <Icon
-              className={`flex-shrink-0 ${active ? 'text-accent' : 'text-slate-400'}`}
+              className={`flex-shrink-0 ${active ? 'text-brand-400' : 'text-slate-400'}`}
               size={20}
               strokeWidth={2}
               aria-hidden
@@ -66,15 +66,15 @@ export default function Layout({ children }) {
   const showAnalyticsSidebar = path !== '/copilot'
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div className="flex h-screen overflow-hidden bg-slate-50/80">
       {showAnalyticsSidebar && (
-        <aside className="w-60 flex-shrink-0 flex flex-col h-full bg-gradient-to-b from-slate-900 to-slate-800 text-white shadow-glass border-r border-white/10 overflow-hidden">
+        <aside className="w-60 flex-shrink-0 flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white shadow-xl border-r border-slate-700/50 overflow-hidden">
           <div className="p-4 border-b border-white/10 flex-shrink-0">
             <div className="flex items-center gap-2">
               <div>
-                <h1 className="text-lg font-semibold tracking-tight">
+                <h1 className="text-lg font-bold tracking-tight">
                   <span className="text-white">HypeOn</span>{' '}
-                  <span className="text-accent">Analytics</span>
+                  <span className="text-brand-400">Analytics</span>
                 </h1>
               </div>
             </div>

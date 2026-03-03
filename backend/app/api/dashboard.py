@@ -8,9 +8,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from ..auth import get_organization_id, require_any_auth
 from ..analytics_cache import (
     get_cached_business_overview,
     get_cached_campaign_performance,
@@ -19,10 +20,7 @@ from ..analytics_cache import (
 
 
 def _org_id(request: Request) -> str:
-    try:
-        return request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "default"
-    except Exception:
-        return "default"
+    return get_organization_id(request)
 
 
 def _safe_client_id(client_id: Any) -> Optional[int]:
@@ -35,7 +33,7 @@ def _safe_client_id(client_id: Any) -> Optional[int]:
         return None
 
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(require_any_auth)])
 logger = logging.getLogger(__name__)
 
 

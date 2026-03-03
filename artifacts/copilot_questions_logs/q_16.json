@@ -1,7 +1,7 @@
 {
   "question": "Countries adding to cart but abandoning checkout \u2014 signals friction or shipping/pricing issues",
-  "answer": "I couldn't find relevant data for that question. Queries tried: none. Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
+  "answer": "# Cart Abandonment Analysis by Country\n\n## Key Findings\n\n**Critical Issue Identified:** Most countries show extremely high checkout initiation rates (>200%), indicating users are adding to cart multiple times before completing checkout\u2014a strong signal of **friction in the checkout process**.\n\n## Top Countries with Cart Abandonment\n\n| Country | Users Affected | Add to Cart | Begin Checkout | Purchases | Checkout Initiation Rate | Completion Rate |\n|---------|---|---|---|---|---|---|\n| Poland | 351 | 504 | 2,618 | 107 | 519.44% | 4.09% |\n| France | 327 | 399 | 2,278 | 131 | 570.93% | 5.75% |\n| Netherlands | 322 | 315 | 2,293 | 163 | 727.94% | 7.11% |\n| Germany | 312 | 384 | 3,134 | 188 | 816.15% | 6.00% |\n| Spain | 294 | 373 | 2,103 | 74 | 563.81% | 3.52% |\n| United Kingdom | 260 | 483 | 625 | 203 | 129.40% | 32.48% |\n\n## Critical Insights\n\n**\ud83d\udea8 Friction Points (High Initiation, Low Completion):**\n- **Spain** (3.52% completion) and **Poland** (4.09%) show severe checkout abandonment despite high cart activity\n- **Germany** has the highest checkout initiation rate (816%) but only 6% completion\u2014suggests repeated friction\n\n**\u2705 Better Performer:**\n- **United Kingdom** shows the healthiest pattern: 129% initiation rate + 32.48% completion rate, suggesting smoother checkout experience\n\n**\u26a0\ufe0f Likely Issues:**\n- Shipping costs/restrictions (especially for Continental Europe)\n- Payment method limitations by country\n- Checkout form complexity or technical errors\n- Unexpected fees revealed at final step\n\n**Recommendation:** Investigate checkout abandonment reasons in Poland, Spain, and Germany\u2014focus on shipping costs, payment options, and form optimization.",
+  "data_rows": 36,
   "session_id": "sim-15",
-  "success": false
+  "success": true
 }
