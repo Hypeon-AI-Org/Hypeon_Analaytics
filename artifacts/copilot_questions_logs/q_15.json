@@ -1,7 +1,0 @@
-{
-  "question": "Top 5 cities by revenue vs cities with traffic but no conversions \u2014 geo funnel gap",
-  "answer": "# Geo Funnel Gap Analysis: Top Revenue Cities vs. Traffic with No Conversions\n\n## Top 5 Cities by Revenue\n\n| City | Revenue (USD) | Purchasers |\n|------|---------------|-----------|\n| Draguignan | $3,115.97 | 1 |\n| Dublin | $3,073.85 | 21 |\n| Wallingford | $2,448.33 | 1 |\n| Montpellier | $2,059.55 | 2 |\n| Warsaw | $1,767.73 | 16 |\n\n**Total Revenue:** $12,465.43 across 41 purchasers\n\n---\n\n## Cities with Traffic but No Conversions\n\n| City | Unique Visitors | Revenue | Purchasers |\n|------|-----------------|---------|-----------|\n| Poznan | \u2014 | $0.00 | 0 |\n| Seville | \u2014 | $0.00 | 0 |\n| The Hague | \u2014 | $0.00 | 0 |\n| Valencia | \u2014 | $0.00 | 0 |\n| Vigo | \u2014 | $0.00 | 0 |\n\n**Key Insight:** These 5 cities generated traffic but had zero conversions, representing a significant funnel gap opportunity for optimization.\n\n---\n\n**Data Source:** `fct_orders` and `fct_sessions` tables from hypeon_marts",
-  "data_rows": 10,
-  "session_id": "sim-14",
-  "success": true
-}

@@ -48,9 +48,10 @@ dist/
 dist-ssr/
 *.local
 
-# Logs
+# Logs and generated artifacts
 logs/
 *.log
+artifacts/
 
 # IDE and OS
 .vscode/*

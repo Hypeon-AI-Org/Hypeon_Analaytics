@@ -1,18 +1,12 @@
 /**
  * Firebase App and Auth initialization for email/password login.
- * Uses VITE_FIREBASE_* env vars from .env. If not set, auth is disabled (e.g. dev without Firebase).
+ * Uses runtime config (window.__APP_CONFIG__) or Vite build-time env. If not set, auth is disabled.
  */
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
+import { getFirebaseConfig } from './runtimeConfig'
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-}
+const firebaseConfig = getFirebaseConfig()
 
 let app = null
 let auth = null

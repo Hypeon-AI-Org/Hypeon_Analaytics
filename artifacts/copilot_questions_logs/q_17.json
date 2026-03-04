@@ -1,7 +1,0 @@
-{
-  "question": "Mobile vs desktop conversion rate gap \u2014 confirm the suspicion most founders have",
-  "answer": "# Mobile vs Desktop Conversion Rate Gap\n\n**The suspicion is confirmed.** Desktop significantly outperforms mobile in conversion rates.\n\n## Conversion Rate by Device (Last 90 Days)\n\n| Device | Unique Users | Purchase Events | Conversion Rate |\n|--------|--------------|-----------------|-----------------|\n| Desktop | 11,031 | 338 | **1.58%** |\n| Mobile | 54,277 | 640 | **0.69%** |\n| Tablet | 2,390 | 22 | **0.33%** |\n\n## Key Findings\n\n- **Desktop converts 2.3x better than mobile** (1.58% vs 0.69%)\n- **Mobile drives 83% of traffic** but only 68% of purchase events\n- **Desktop users are 5x more likely to convert** than tablet users\n\n**Data source:** `fct_sessions` table, 90-day period",
-  "data_rows": 3,
-  "session_id": "sim-16",
-  "success": true
-}

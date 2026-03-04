@@ -38,8 +38,8 @@ def analyze(
     """
     intent = _extract_intent(question, context)
     limit = get_discover_tables_limit()
-    candidates_raw = copilot_tools.discover_tables(intent, limit=limit)
-    project = _get_project()
+    candidates_raw = copilot_tools.discover_tables(intent, limit=limit, organization_id=organization_id or None)
+    project = _get_project(organization_id)
     candidates = []
     for c in candidates_raw[:12]:
         proj = c.get("project") or project
@@ -56,9 +56,12 @@ def analyze(
     }
 
 
-def _get_project() -> str:
+def _get_project(organization_id: Optional[str] = None) -> str:
     try:
-        from ..clients.bigquery import _project
+        from ..clients.bigquery import _get_bq_context, _project
+        ctx = _get_bq_context(organization_id) if organization_id else None
+        if ctx and ctx.get("bq_project"):
+            return ctx["bq_project"]
         return _project()
     except Exception:
         import os

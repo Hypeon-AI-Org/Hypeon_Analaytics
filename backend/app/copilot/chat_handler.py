@@ -229,7 +229,7 @@ def _try_raw_fallback(message: str, organization_id: str, client_id: int) -> Opt
     except Exception as e:
         logger.warning("Raw fallback import failed: %s", e)
         return None
-    raw_schema = get_raw_schema_for_copilot()
+    raw_schema = get_raw_schema_for_copilot(organization_id)
     if not raw_schema or "not available" in raw_schema.lower():
         return None
     system = (

@@ -1,0 +1,19 @@
+# Used when building from repo root (e.g. backend image)
+.git
+.gitignore
+*.md
+.env
+.env.*
+node_modules
+frontend/node_modules
+frontend/dist
+.pytest_cache
+__pycache__
+*.pyc
+.venv
+venv
+artifacts
+*.log
+.cursor
+.idea
+.vscode

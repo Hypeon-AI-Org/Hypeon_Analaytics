@@ -37,7 +37,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import get_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
-from .auth import init_firebase, get_organization, get_organization_id, get_role_from_token as auth_get_role
+from .auth import (
+    get_organization,
+    get_organization_id,
+    get_org_projects_flat,
+    get_role_from_token as auth_get_role,
+    init_firebase,
+    parse_org_projects,
+)
 from .config_loader import get
 from .copilot_synthesizer import (
     set_llm_client,
@@ -74,6 +81,12 @@ async def lifespan(app: FastAPI):
         init_firebase()
     except Exception as e:
         logger.warning("Firebase init: %s", e)
+    # Eagerly resolve session store so Firestore vs in-memory is fixed at startup
+    try:
+        from .copilot.session_memory import get_session_store
+        get_session_store()
+    except Exception as e:
+        logger.debug("Session store init: %s", e)
     logger.info("Request logging active: every API request will be logged (METHOD path -> status | duration)")
     yield
 
@@ -287,7 +300,7 @@ def get_me(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Return current user's organization and dataset/client list from Firestore. Used after login to scope all data requests."""
+    """Return current user's organization and dataset list from Firestore. Supports Option B: projects (bq_project + datasets per project)."""
     org_id = get_organization_id(request)
     org_doc = get_organization(org_id)
     if not org_doc:
@@ -296,7 +309,47 @@ def get_me(
             "name": None,
             "client_ids": [1],
             "ad_channels": [{"client_id": 1, "description": "Default"}],
+            "projects": [],
         }
+    # Option B: org has "projects" array (bq_project + datasets with bq_dataset, bq_location)
+    projects_raw = parse_org_projects(org_doc)
+    flat = get_org_projects_flat(org_doc)
+    if flat:
+        client_ids = [c["client_id"] for c in flat]
+        ad_channels_list = [
+            {
+                "client_id": c["client_id"],
+                "description": c.get("description", ""),
+                "bq_project": c.get("bq_project"),
+                "bq_dataset": c.get("bq_dataset"),
+                "bq_location": c.get("bq_location"),
+                "type": c.get("type"),
+            }
+            for c in flat
+        ]
+        # Raw Option B structure for clients that want project grouping
+        projects_for_response = [
+            {
+                "bq_project": p.get("bq_project"),
+                "datasets": [
+                    {
+                        "bq_dataset": d.get("bq_dataset"),
+                        "bq_location": d.get("bq_location"),
+                        "type": d.get("type"),
+                    }
+                    for d in (p.get("datasets") or [])
+                ],
+            }
+            for p in projects_raw
+        ]
+        return {
+            "organization_id": org_id,
+            "name": org_doc.get("name"),
+            "client_ids": client_ids,
+            "ad_channels": ad_channels_list,
+            "projects": projects_for_response,
+        }
+    # Legacy: ad_channels or datasets (no projects)
     raw_channels = org_doc.get("ad_channels") or org_doc.get("datasets")
     client_ids = []
     ad_channels_list = []
@@ -323,6 +376,7 @@ def get_me(
         "name": org_doc.get("name"),
         "client_ids": client_ids,
         "ad_channels": ad_channels_list,
+        "projects": [],
     }
 
 
@@ -575,6 +629,21 @@ def copilot_chat_history(
     return {"session_id": session_id, "messages": messages}
 
 
+@app.get("/api/v1/copilot/store-info")
+def copilot_store_info(
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Return which session store is used and current org (for diagnostics). Not required for normal operation."""
+    import os
+    from .copilot.session_memory import get_session_store
+    store = get_session_store()
+    kind = "firestore" if type(store).__name__ == "FirestoreSessionStore" else "memory"
+    db_id = os.environ.get("FIRESTORE_DATABASE_ID") if kind == "firestore" else None
+    org = get_organization_id(request)
+    return {"store": kind, "database_id": db_id, "organization_id": org}
+
+
 @app.get("/api/v1/copilot/sessions")
 def copilot_sessions(
     request: Request,
@@ -585,6 +654,7 @@ def copilot_sessions(
     from .copilot.session_memory import get_session_store
     store = get_session_store()
     sessions = store.get_sessions(org)
+    logger.info("Copilot GET /sessions org=%s count=%d", org, len(sessions))
     return {"sessions": sessions}
 
 

@@ -79,6 +79,53 @@ def test_discover_tables_uses_cache():
     mock_list.assert_not_called()
 
 
+def test_get_org_bq_context_from_firestore():
+    """When org has Firestore projects with typed datasets, get_org_bq_context returns BQ config."""
+    from backend.app.auth.firestore_user import get_org_bq_context
+
+    org_doc = {
+        "name": "Test Org",
+        "projects": [
+            {
+                "bq_project": "my-bq-project",
+                "datasets": [
+                    {"bq_dataset": "hypeon_marts", "bq_location": "europe-north2", "type": "marts"},
+                    {"bq_dataset": "hypeon_marts_ads", "bq_location": "EU", "type": "marts_ads"},
+                ],
+            },
+            {
+                "bq_project": "my-source-project",
+                "datasets": [
+                    {"bq_dataset": "analytics_ga4", "bq_location": "europe-north2", "type": "ga4"},
+                    {"bq_dataset": "146568", "bq_location": "EU", "type": "ads"},
+                ],
+            },
+        ],
+    }
+    with patch("backend.app.auth.firestore_user.get_organization") as mock_get_org:
+        mock_get_org.return_value = org_doc
+        ctx = get_org_bq_context("test-org")
+    assert ctx is not None
+    assert ctx["bq_project"] == "my-bq-project"
+    assert ctx["marts_dataset"] == "hypeon_marts"
+    assert ctx["marts_ads_dataset"] == "hypeon_marts_ads"
+    assert ctx["ga4_dataset"] == "analytics_ga4"
+    assert ctx["ads_dataset"] == "146568"
+    assert ctx["bq_location"] == "europe-north2"
+    assert ctx["bq_location_ads"] == "EU"
+    assert ctx["bq_source_project"] == "my-source-project"
+
+
+def test_get_org_bq_context_returns_none_when_no_projects():
+    """When org has no projects, get_org_bq_context returns None."""
+    from backend.app.auth.firestore_user import get_org_bq_context
+
+    with patch("backend.app.auth.firestore_user.get_organization") as mock_get_org:
+        mock_get_org.return_value = {"name": "Empty Org"}
+        ctx = get_org_bq_context("empty-org")
+    assert ctx is None
+
+
 def test_run_bigquery_sql_rejects_non_select():
     from backend.app.copilot.tools import execute_tool
     res = execute_tool("org", 1, "run_bigquery_sql", {"query": "INSERT INTO t (a) VALUES (1)"})

@@ -1,7 +1,0 @@
-{
-  "question": "Which channels actually bring new customers vs recycled buyers \u2014 is_new_customer by channel",
-  "answer": "# New vs. Recycled Customers by Channel\n\n## Key Finding\n**All channels are currently bringing 100% new customers with zero recycled buyers.** This suggests the dataset may be limited to first-touch attribution or early-stage customer data.\n\n## Top Channels by Customer Volume\n\n| Channel | Total Customers | New Customers | Recycled Buyers | % New |\n|---------|-----------------|---------------|-----------------|-------|\n| google | 360 | 360 | 0 | 100.0% |\n| (direct) | 97 | 97 | 0 | 100.0% |\n| Pinterest | 25 | 25 | 0 | 100.0% |\n| (blank/untagged) | 17 | 17 | 0 | 100.0% |\n| Data Not Available | 11 | 11 | 0 | 100.0% |\n| fb | 8 | 8 | 0 | 100.0% |\n| bing | 6 | 6 | 0 | 100.0% |\n| ig | 5 | 5 | 0 | 100.0% |\n| facebook | 5 | 5 | 0 | 100.0% |\n\n**Source:** `hypeon_marts.dim_user_first_touch` table (110 channels total)\n\n## Insights\n- **Google** dominates with 360 customers (73% of top channels)\n- **Direct traffic** is the second largest source with 97 customers\n- **Social channels** (Pinterest, Facebook, Instagram) combined account for ~43 customers\n- No repeat/recycled customer activity detected across any channel",
-  "data_rows": 110,
-  "session_id": "sim-6",
-  "success": true
-}

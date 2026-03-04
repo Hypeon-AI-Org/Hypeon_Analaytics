@@ -1,7 +1,0 @@
-{
-  "question": "Most common channel path before first purchase \u2014 multi-touch journey mapping",
-  "answer": "I'm having trouble right now. Please try again, or ask e.g. \"Views count of item FT05B from Google\". If this persists, check that ANTHROPIC_API_KEY or GEMINI_API_KEY is set and that the analytics schema is available.",
-  "data_rows": 0,
-  "session_id": "sim-7",
-  "success": true
-}

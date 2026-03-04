@@ -1,7 +1,0 @@
-{
-  "question": "Days from first visit to first purchase by channel \u2014 time lag analysis",
-  "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  utm_source AS channel,\n  COUNT(DISTINCT user_pseudo_id) AS users_with_purchase,\n  AVG(days_to_first_purchase) AS avg_days_to_first_purchase,\n  MIN(days_to_first_purchase) AS min_days_to_first_purchase,\n  MAX(days_to_first_purchase) AS max_days_to_first_purchase,\n  PERCENTILE_CONT(days_to_first_purchase, 0.5) OVER (PARTITION BY utm_source) AS median_days_to_first_purchase\nFROM `hypeon-ai-prod.hypeon_marts.dim_user_first_touch`\nWHERE has_purchased = 1 AND days_to_first_purchase IS NOT NUL.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
-  "session_id": "sim-8",
-  "success": false
-}

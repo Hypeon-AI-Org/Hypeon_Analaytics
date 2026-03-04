@@ -19,13 +19,29 @@ def _is_table_not_found(exc: BaseException) -> bool:
 _client: Any = None
 
 
-def get_client():
+def _get_bq_context(organization_id: Optional[str] = None) -> Optional[dict]:
+    """Resolve BQ config from Firestore org when organization_id is set. Returns None if not found (use env)."""
+    if not (organization_id or "").strip():
+        return None
+    try:
+        from ..auth.firestore_user import get_org_bq_context
+        return get_org_bq_context(organization_id.strip())
+    except Exception:
+        return None
+
+
+def get_client(project: Optional[str] = None, location: Optional[str] = None):
+    """Return BigQuery client. If project/location given, return a new client; else return global (env-based) client."""
+    from google.cloud import bigquery
+    if project is not None or location is not None:
+        proj = project or os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
+        loc = location or os.environ.get("BQ_LOCATION")
+        return bigquery.Client(project=proj, location=loc) if loc else bigquery.Client(project=proj)
     global _client
     if _client is None:
-        from google.cloud import bigquery
-        project = os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
-        location = os.environ.get("BQ_LOCATION")
-        _client = bigquery.Client(project=project, location=location) if location else bigquery.Client(project=project)
+        proj = os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
+        loc = os.environ.get("BQ_LOCATION")
+        _client = bigquery.Client(project=proj, location=loc) if loc else bigquery.Client(project=proj)
     return _client
 
 
@@ -169,15 +185,20 @@ def _copilot_raw_allowed_datasets() -> frozenset[str]:
     return frozenset({ga4, ads})
 
 
-def _copilot_raw_table_allowed(dataset: str, table_name: str) -> bool:
+def _copilot_raw_table_allowed(
+    dataset: str,
+    table_name: str,
+    ga4_ds: Optional[str] = None,
+    ads_ds: Optional[str] = None,
+) -> bool:
     """True if (dataset, table_name) is in the raw allowlist. GA4: events_* (excl. events_intraday_); Ads: ads_AccountBasicStats_*."""
     ds = (dataset or "").strip().lower()
     tn = (table_name or "").strip().lower()
-    ga4_ds = get_ga4_dataset().strip().lower()
-    ads_ds = get_ads_dataset().strip().lower()
-    if ds == ga4_ds:
+    ga4 = (ga4_ds or get_ga4_dataset()).strip().lower()
+    ads = (ads_ds or get_ads_dataset()).strip().lower()
+    if ds == ga4:
         return tn.startswith("events_") and not tn.startswith("events_intraday_")
-    if ds == ads_ds:
+    if ds == ads:
         return tn.startswith("ads_accountbasicstats_")
     return False
 
@@ -221,8 +242,18 @@ def run_readonly_query_raw(
         if verb in upper:
             return {"rows": [], "error": f"Only read-only SELECT is allowed (no {verb})."}
 
-    project = _source_project().lower()
-    allowed_raw_datasets = _copilot_raw_allowed_datasets()
+    ctx = _get_bq_context(organization_id)
+    if ctx and (ctx.get("ga4_dataset") or ctx.get("ads_dataset")):
+        project = (ctx.get("bq_source_project") or ctx.get("bq_project") or _source_project()).strip().lower()
+        ga4_ds = (ctx.get("ga4_dataset") or "").strip().lower()
+        ads_ds = (ctx.get("ads_dataset") or "").strip().lower()
+        allowed_raw_datasets = frozenset({s for s in (ga4_ds, ads_ds) if s})
+        location = (ctx.get("bq_location") or "").strip() or "europe-north2"
+    else:
+        project = _source_project().lower()
+        allowed_raw_datasets = _copilot_raw_allowed_datasets()
+        location = os.environ.get("BQ_LOCATION", "europe-north2")
+
     pattern = r"`([^`]+)`"
     for match in re.finditer(pattern, sql):
         ref = match.group(1).strip().lower()
@@ -231,16 +262,15 @@ def run_readonly_query_raw(
             continue
         ref_project, ref_dataset, table_part = parts
         if ref_project != project:
-            return {"rows": [], "error": f"Only tables in project {_source_project()} are allowed for raw queries."}
+            return {"rows": [], "error": f"Only tables in project {project} are allowed for raw queries."}
         if ref_dataset not in allowed_raw_datasets:
             return {"rows": [], "error": f"Dataset not allowed for raw: {ref_dataset}. Use only GA4 or Ads raw datasets."}
-        if not _copilot_raw_table_allowed(ref_dataset, table_part):
+        if not _copilot_raw_table_allowed(ref_dataset, table_part, ga4_ds=ctx.get("ga4_dataset") if ctx else None, ads_ds=ctx.get("ads_dataset") if ctx else None):
             return {"rows": [], "error": f"Table {ref_dataset}.{table_part} not in raw allowlist. GA4: events_*; Ads: ads_AccountBasicStats_*."}
 
     if "LIMIT" not in upper:
         sql_normalized = f"{sql_normalized} LIMIT {max_rows}"
 
-    location = os.environ.get("BQ_LOCATION", "europe-north2")
     client = bigquery.Client(project=project, location=location)
     job_config = bigquery.QueryJobConfig(maximum_bytes_billed=max_bytes_billed)
     try:
@@ -275,7 +305,7 @@ def run_bigquery_sql_readonly(
 ) -> dict:
     """
     Run a read-only BigQuery query for Copilot V2. Validates SELECT-only (no DML/DDL).
-    No hard-coded dataset whitelist; access is enforced by IAM.
+    When organization_id is set, uses BQ project/location from Firestore org config; else env.
     Returns {"rows": [...], "schema": [...], "row_count": int, "stats": {...}, "error": None or str}.
     """
     from google.cloud import bigquery
@@ -305,7 +335,11 @@ def run_bigquery_sql_readonly(
         max_mb = 300
     max_bytes_billed = max_mb * 1024 * 1024
 
-    client = get_client()
+    ctx = _get_bq_context(organization_id)
+    if ctx and ctx.get("bq_project") and (ctx.get("marts_dataset") or ctx.get("marts_ads_dataset")):
+        client = get_client(project=ctx["bq_project"], location=ctx.get("bq_location") or "europe-north2")
+    else:
+        client = get_client()
     job_config = bigquery.QueryJobConfig(maximum_bytes_billed=max_bytes_billed)
 
     if dry_run:
@@ -339,30 +373,56 @@ def list_tables_for_discovery(
     project: str | None = None,
     datasets: list[str] | None = None,
     location: str | None = None,
+    organization_id: Optional[str] = None,
 ) -> list[dict]:
     """
     List BASE TABLEs from INFORMATION_SCHEMA for the given project/datasets.
+    When organization_id is set and org has Firestore projects, uses org BQ config; else env.
     Returns list of {"project", "dataset", "table_name", "columns": [{"name", "data_type"}], "last_updated": ...}.
-    If datasets is None, uses MARTS_DATASET, MARTS_ADS_DATASET, GA4_DATASET, ADS_DATASET from env.
     """
     from google.cloud import bigquery
 
-    project = project or _project()
-    if datasets is None:
-        datasets = [
-            get_marts_dataset(),
-            get_marts_ads_dataset(),
-            get_ga4_dataset(),
-            get_ads_dataset(),
-        ]
-    location = location or os.environ.get("BQ_LOCATION", "europe-north2")
-    client = bigquery.Client(project=project, location=location)
+    ctx = _get_bq_context(organization_id) if organization_id else None
+    if ctx and ctx.get("bq_project"):
+        project = project or ctx["bq_project"]
+        if datasets is None:
+            datasets = []
+            for key in ("marts_dataset", "marts_ads_dataset", "ga4_dataset", "ads_dataset"):
+                v = (ctx.get(key) or "").strip()
+                if v:
+                    datasets.append(v)
+        if not datasets:
+            datasets = [get_marts_dataset(), get_marts_ads_dataset(), get_ga4_dataset(), get_ads_dataset()]
+        default_location = ctx.get("bq_location") or "europe-north2"
+        location_ads = ctx.get("bq_location_ads") or "EU"
+    else:
+        project = project or _project()
+        if datasets is None:
+            datasets = [
+                get_marts_dataset(),
+                get_marts_ads_dataset(),
+                get_ga4_dataset(),
+                get_ads_dataset(),
+            ]
+        default_location = location or os.environ.get("BQ_LOCATION", "europe-north2")
+        location_ads = os.environ.get("BQ_LOCATION_ADS", "EU")
+
+    # Per-dataset location: marts use default_location, marts_ads use location_ads; ga4/ads use default or location_ads
+    marts_ds = (ctx.get("marts_dataset") if ctx else None) or get_marts_dataset()
+    marts_ads_ds = (ctx.get("marts_ads_dataset") if ctx else None) or get_marts_ads_dataset()
+    dataset_locations: dict[str, str] = {}
+    if marts_ds:
+        dataset_locations[marts_ds.strip().lower()] = default_location
+    if marts_ads_ds:
+        dataset_locations[marts_ads_ds.strip().lower()] = location_ads
     out: list[dict] = []
 
     for dataset in datasets:
         dataset = (dataset or "").strip()
         if not dataset:
             continue
+        loc = dataset_locations.get(dataset.lower()) or default_location
+        client = bigquery.Client(project=project, location=loc)
         try:
             tables_sql = f"""
             SELECT table_catalog, table_schema, table_name
@@ -399,21 +459,32 @@ def list_tables_for_discovery(
     return out
 
 
-def get_marts_schema_live() -> list[dict] | None:
+def get_marts_schema_live(organization_id: Optional[str] = None) -> list[dict] | None:
     """
-    Fetch live schema from hypeon_marts and hypeon_marts_ads for Copilot.
-    Returns list of {"table_name": str, "column_name": str} or None on error.
+    Fetch live schema from marts datasets for Copilot.
+    When organization_id is set and org has Firestore projects, uses org BQ config; else env.
+    Returns list of {"table_name": str, "column_name": str, "dataset": str} or None on error.
     """
     logger = logging.getLogger(__name__)
-    project = _project()
-    marts = get_marts_dataset()
-    marts_ads = get_marts_ads_dataset()
+    ctx = _get_bq_context(organization_id) if organization_id else None
+    if ctx and ctx.get("bq_project"):
+        project = ctx["bq_project"]
+        marts = (ctx.get("marts_dataset") or "").strip() or get_marts_dataset()
+        marts_ads = (ctx.get("marts_ads_dataset") or "").strip() or get_marts_ads_dataset()
+        location = (ctx.get("bq_location") or "").strip() or "europe-north2"
+        location_ads = (ctx.get("bq_location_ads") or "").strip() or "EU"
+    else:
+        project = _project()
+        marts = get_marts_dataset()
+        marts_ads = get_marts_ads_dataset()
+        location = os.environ.get("BQ_LOCATION", "europe-north2")
+        location_ads = os.environ.get("BQ_LOCATION_ADS", "EU")
     out: list[dict] = []
-    location = os.environ.get("BQ_LOCATION", "europe-north2")
-    location_ads = os.environ.get("BQ_LOCATION_ADS", "EU")
     try:
         from google.cloud import bigquery
         for ds, loc in [(marts, location), (marts_ads, location_ads)]:
+            if not (ds or "").strip():
+                continue
             client = bigquery.Client(project=project, location=loc)
             q = f"SELECT table_name, column_name FROM `{project}.{ds}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name, ordinal_position"
             df = client.query(q).to_dataframe()

@@ -1,12 +1,16 @@
-const API_BASE = import.meta.env.VITE_API_BASE || ''
-
+import { getApiBase, getApiKey } from './runtimeConfig'
 import { getTokenForRequest } from './apiAuth'
+
+function apiBase() {
+  return getApiBase() || ''
+}
 
 async function getAuthHeaders() {
   const h = { 'X-Organization-Id': 'default' }
   const token = await getTokenForRequest()
   if (token) h['Authorization'] = `Bearer ${token}`
-  if (import.meta.env.VITE_API_KEY) h['X-API-Key'] = import.meta.env.VITE_API_KEY
+  const apiKey = getApiKey()
+  if (apiKey) h['X-API-Key'] = apiKey
   return h
 }
 
@@ -22,7 +26,7 @@ function apiErrorMessage(res, err) {
 
 // ----- Current user's organization and datasets (call after login) -----
 export async function fetchMe() {
-  const res = await fetch(`${API_BASE}/api/v1/me`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/me`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -34,7 +38,7 @@ export async function fetchMe() {
 export async function fetchBusinessOverview(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${API_BASE}/api/v1/dashboard/business-overview?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/dashboard/business-overview?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -45,7 +49,7 @@ export async function fetchBusinessOverview(params = {}) {
 export async function fetchCampaignPerformance(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${API_BASE}/api/v1/dashboard/campaign-performance?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/dashboard/campaign-performance?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -56,7 +60,7 @@ export async function fetchCampaignPerformance(params = {}) {
 export async function fetchFunnel(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${API_BASE}/api/v1/dashboard/funnel?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/dashboard/funnel?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -76,7 +80,7 @@ export async function fetchGoogleAdsAnalysis({ client_id, days, start_date, end_
   if (days != null) sp.set('days', days)
   if (start_date) sp.set('start_date', start_date)
   if (end_date) sp.set('end_date', end_date)
-  const res = await fetch(`${API_BASE}/api/v1/analysis/google-ads?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/analysis/google-ads?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
 }
@@ -87,14 +91,14 @@ export async function fetchGoogleAnalyticsAnalysis({ client_id, days, start_date
   if (days != null) sp.set('days', days)
   if (start_date) sp.set('start_date', start_date)
   if (end_date) sp.set('end_date', end_date)
-  const res = await fetch(`${API_BASE}/api/v1/analysis/google-analytics?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/analysis/google-analytics?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
 }
 
 // ----- Copilot chat (LLM + run_sql on ADS/GA4 datasets) -----
 export async function copilotChat({ message, session_id, client_id } = {}) {
-  const res = await fetch(`${API_BASE}/api/v1/copilot/chat`, {
+  const res = await fetch(`${apiBase()}/api/v1/copilot/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({ message: message || '', session_id, client_id }),
@@ -111,7 +115,7 @@ export async function copilotChat({ message, session_id, client_id } = {}) {
 export function copilotChatStream({ message, session_id, client_id } = {}, onEvent) {
   const controller = new AbortController()
   const promise = (async () => {
-    const res = await fetch(`${API_BASE}/api/v1/copilot/chat/stream`, {
+    const res = await fetch(`${apiBase()}/api/v1/copilot/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
       body: JSON.stringify({ message: message || '', session_id, client_id }),
@@ -150,7 +154,7 @@ export function copilotChatStream({ message, session_id, client_id } = {}, onEve
 }
 
 export async function copilotChatHistory(session_id) {
-  const res = await fetch(`${API_BASE}/api/v1/copilot/chat/history?session_id=${encodeURIComponent(session_id)}`, {
+  const res = await fetch(`${apiBase()}/api/v1/copilot/chat/history?session_id=${encodeURIComponent(session_id)}`, {
     headers: await getAuthHeaders(),
   })
   if (!res.ok) throw new Error(res.statusText)
@@ -158,7 +162,7 @@ export async function copilotChatHistory(session_id) {
 }
 
 export async function fetchCopilotSessions() {
-  const res = await fetch(`${API_BASE}/api/v1/copilot/sessions`, { headers: await getAuthHeaders() })
+  const res = await fetch(`${apiBase()}/api/v1/copilot/sessions`, { headers: await getAuthHeaders() })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
 }
@@ -169,14 +173,14 @@ export async function fetchInsights(params = {}) {
   if (params.client_id != null) sp.set('client_id', params.client_id)
   if (params.status) sp.set('status', params.status)
   if (params.limit) sp.set('limit', params.limit)
-  const url = `${API_BASE}/insights?${sp}`
+  const url = `${apiBase()}/insights?${sp}`
   const res = await fetch(url, { headers: await getAuthHeaders() })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
 }
 
 export async function applyRecommendation(insightId, status, userId = null) {
-  const res = await fetch(`${API_BASE}/recommendations/apply`, {
+  const res = await fetch(`${apiBase()}/recommendations/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({ insight_id: insightId, status, user_id: userId }),
@@ -186,7 +190,7 @@ export async function applyRecommendation(insightId, status, userId = null) {
 }
 
 export async function copilotQuery(insightId) {
-  const res = await fetch(`${API_BASE}/copilot_query`, {
+  const res = await fetch(`${apiBase()}/copilot_query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({ insight_id: insightId }),
@@ -201,7 +205,7 @@ export async function copilotQuery(insightId) {
 export function copilotStream(insightId, onEvent) {
   const controller = new AbortController()
   const promise = (async () => {
-    const res = await fetch(`${API_BASE}/copilot/stream`, {
+    const res = await fetch(`${apiBase()}/copilot/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
       body: JSON.stringify({ insight_id: insightId }),

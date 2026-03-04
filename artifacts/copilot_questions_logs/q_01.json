@@ -1,7 +1,0 @@
-{
-  "question": "Top 10 product IDs driving 50% of revenue \u2014 pareto/cumulative revenue ranking",
-  "answer": "# Top 10 Products Driving 50% of Revenue\n\n## Summary\nThe top 10 products account for **18.81% of total revenue**. To reach the 50% revenue threshold, **56 products** are required (based on the Pareto analysis).\n\n## Top 10 Revenue-Driving Products\n\n| Rank | Product ID | Revenue | Cumulative Revenue | % of Total |\n|------|-----------|---------|-------------------|-----------|\n| 1 | FT0507-210400 | $3,096.46 | $3,096.46 | 3.82% |\n| 2 | FT0525-7767 | $1,636.18 | $4,732.65 | 5.83% |\n| 3 | FT3400-ITVA-001-W0038 | $1,587.92 | $6,320.57 | 7.79% |\n| 4 | FT0507-217087 | $1,493.78 | $7,814.35 | 9.63% |\n| 5 | FT0525-6928 | $1,441.71 | $9,256.06 | 11.41% |\n| 6 | FT0537-G67560 | $1,438.12 | $10,694.18 | 13.18% |\n| 7 | FT3400-ITSA-008-W0174 | $1,281.96 | $11,976.14 | 14.76% |\n| 8 | FT0525-3279 | $1,188.17 | $13,164.31 | 16.23% |\n| 9 | FT0507-210388 | $1,082.15 | $14,246.46 | 17.56% |\n| 10 | FT0525-7270 | $1,014.39 | $15,260.85 | 18.81% |\n\n**Data Source:** `hypeon_marts.fct_order_items`",
-  "data_rows": 56,
-  "session_id": "sim-0",
-  "success": true
-}

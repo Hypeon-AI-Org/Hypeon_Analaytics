@@ -1,18 +1,24 @@
 """
-Copilot session memory store: in-memory store for multi-turn context per session.
+Copilot session memory store: Firestore (primary) or in-memory fallback for multi-turn context per session.
 """
 from __future__ import annotations
 
+import logging
+import os
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 MAX_MESSAGES_PER_SESSION = 20
 MAX_SESSIONS = 100
 MAX_SESSIONS_LIST = 50
 SESSION_TITLE_MAX_LEN = 50
+
+COPLIOT_SESSIONS_COLLECTION = "copilot_sessions"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,6 +46,176 @@ class SessionState:
 
     def get_messages(self) -> list[dict]:
         return [{"role": m.role, "content": m.content, **(m.meta or {})} for m in self.messages]
+
+
+def _message_to_dict(role: str, content: str, meta: Optional[dict] = None) -> dict[str, Any]:
+    """Serialize a message for Firestore (only JSON-safe values)."""
+    out: dict[str, Any] = {"role": role, "content": content or ""}
+    if meta and isinstance(meta, dict):
+        out["meta"] = {k: v for k, v in meta.items() if isinstance(v, (str, int, float, bool, type(None), list, dict))}
+    return out
+
+
+class FirestoreSessionStore:
+    """
+    Persists copilot sessions and messages in Firestore.
+    Collection: copilot_sessions. Document ID = session_id.
+    Fields: organization_id, title, updated_at, context_summary?, messages (array of {role, content, meta?}).
+    Requires composite index: organization_id (asc), updated_at (desc) for get_sessions.
+    """
+
+    def __init__(self):
+        self._db = None
+
+    def _get_db(self):
+        if self._db is None:
+            try:
+                from ..auth.firestore_user import _get_firestore
+                self._db = _get_firestore()
+            except Exception as e:
+                logger.debug("Firestore session store: %s", e)
+        return self._db
+
+    def append(
+        self,
+        organization_id: str,
+        session_id: str,
+        role: str,
+        content: str,
+        meta: Optional[dict] = None,
+    ) -> None:
+        db = self._get_db()
+        if not db:
+            return
+        org = organization_id or "default"
+        now = time.time()
+        title = None
+        if role == "user" and content:
+            title = (content or "").strip()[:SESSION_TITLE_MAX_LEN] or "New chat"
+        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        try:
+            doc = ref.get()
+            msg = _message_to_dict(role, content, meta)
+            if not doc.exists:
+                ref.set({
+                    "organization_id": org,
+                    "title": title or "New chat",
+                    "updated_at": now,
+                    "messages": [msg],
+                })
+            else:
+                data = doc.to_dict() or {}
+                if (data.get("organization_id") or "default") != org:
+                    return
+                messages = list(data.get("messages") or [])
+                messages.append(msg)
+                messages = messages[-MAX_MESSAGES_PER_SESSION:]
+                update: dict[str, Any] = {
+                    "messages": messages,
+                    "updated_at": now,
+                }
+                if title and (not data.get("title") or not str(data.get("title", "")).strip()):
+                    update["title"] = title
+                ref.update(update)
+        except Exception as e:
+            logger.warning("FirestoreSessionStore.append failed: %s", e, exc_info=True)
+
+    def get_messages(self, organization_id: str, session_id: str) -> list[dict]:
+        db = self._get_db()
+        if not db:
+            return []
+        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        try:
+            doc = ref.get()
+            if not doc.exists:
+                return []
+            data = doc.to_dict() or {}
+            if (data.get("organization_id") or "default") != (organization_id or "default"):
+                return []
+            messages = data.get("messages") or []
+            # Return last N in chronological order; merge meta into each message to match in-memory API
+            out = []
+            for m in messages[-MAX_MESSAGES_PER_SESSION:]:
+                if not isinstance(m, dict):
+                    continue
+                msg = {"role": m.get("role", ""), "content": m.get("content", "")}
+                if isinstance(m.get("meta"), dict):
+                    msg.update(m["meta"])
+                out.append(msg)
+            return out
+        except Exception as e:
+            logger.warning("FirestoreSessionStore.get_messages failed: %s", e)
+            return []
+
+    def get_sessions(self, organization_id: str) -> list[dict]:
+        """Sessions for the org, sorted by updated_at desc, capped at MAX_SESSIONS_LIST. No composite index required (sort in memory)."""
+        db = self._get_db()
+        if not db:
+            return []
+        org = organization_id or "default"
+        try:
+            q = (
+                db.collection(COPLIOT_SESSIONS_COLLECTION)
+                .where("organization_id", "==", org)
+                .limit(MAX_SESSIONS_LIST + 50)
+            )
+            out = []
+            for doc in q.stream():
+                d = doc.to_dict() or {}
+                out.append({
+                    "session_id": doc.id,
+                    "title": d.get("title") or "New chat",
+                    "updated_at": d.get("updated_at"),
+                })
+            out.sort(key=lambda x: (x["updated_at"] or 0), reverse=True)
+            return out[:MAX_SESSIONS_LIST]
+        except Exception as e:
+            logger.warning("FirestoreSessionStore.get_sessions failed: %s", e)
+            return []
+
+    def set_context_summary(self, organization_id: str, session_id: str, summary: dict) -> None:
+        db = self._get_db()
+        if not db:
+            return
+        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        try:
+            ref.update({"context_summary": summary})
+        except Exception as e:
+            logger.debug("FirestoreSessionStore.set_context_summary failed: %s", e)
+
+    def get_context_summary(self, organization_id: str, session_id: str) -> Optional[dict]:
+        db = self._get_db()
+        if not db:
+            return None
+        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        try:
+            doc = ref.get()
+            if not doc.exists:
+                return None
+            data = doc.to_dict() or {}
+            if (data.get("organization_id") or "default") != (organization_id or "default"):
+                return None
+            return data.get("context_summary")
+        except Exception as e:
+            logger.debug("FirestoreSessionStore.get_context_summary failed: %s", e)
+            return None
+
+    def clear_session(self, organization_id: str, session_id: str) -> bool:
+        db = self._get_db()
+        if not db:
+            return False
+        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        try:
+            doc = ref.get()
+            if not doc.exists:
+                return False
+            if (doc.to_dict() or {}).get("organization_id") != (organization_id or "default"):
+                return False
+            ref.delete()
+            return True
+        except Exception as e:
+            logger.warning("FirestoreSessionStore.clear_session failed: %s", e)
+            return False
 
 
 class SessionMemoryStore:
@@ -99,10 +275,24 @@ class SessionMemoryStore:
 
 
 _session_store: Optional[SessionMemoryStore] = None
+_firestore_store: Optional[FirestoreSessionStore] = None
 
 
-def get_session_store() -> SessionMemoryStore:
-    global _session_store
+def get_session_store() -> FirestoreSessionStore | SessionMemoryStore:
+    """Return Firestore-backed store when Firestore is available, otherwise in-memory fallback."""
+    global _firestore_store, _session_store
+    try:
+        from ..auth.firestore_user import _get_firestore
+        db = _get_firestore()
+        if db is not None:
+            if _firestore_store is None:
+                _firestore_store = FirestoreSessionStore()
+                _db_id = os.environ.get("FIRESTORE_DATABASE_ID") or "(default)"
+                logger.info("Copilot session store: Firestore (database=%s)", _db_id)
+            return _firestore_store
+    except Exception as e:
+        logger.debug("Copilot session store: Firestore unavailable (%s), using in-memory", e)
     if _session_store is None:
         _session_store = SessionMemoryStore()
+        logger.info("Copilot session store: in-memory (Firestore not available)")
     return _session_store

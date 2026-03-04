@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 # In-process cache for get_schema_for_copilot() to avoid re-reading on every request.
 _SCHEMA_CACHE: str | None = None
@@ -370,20 +371,28 @@ def _marts_only_rules(project: str, marts: str, marts_ads: str) -> str:
 """
 
 
-def get_raw_schema_for_copilot() -> str:
+def get_raw_schema_for_copilot(organization_id: Optional[str] = None) -> str:
     """
     Load schema + sample rows for raw datasets (GA4, Ads).
+    When organization_id is set, uses org BQ config from Firestore for dataset names; else env.
     Prefers all_schemas_and_samples.json when present; falls back to raw_copilot_schema.json.
     Capped at _RAW_SCHEMA_MAX_CHARS.
     """
+    ctx = None
+    if organization_id:
+        try:
+            from ..auth.firestore_user import get_org_bq_context
+            ctx = get_org_bq_context(organization_id)
+        except Exception:
+            pass
     data = _load_all_schemas_and_samples()
     if data:
-        ga4_ds = get_ga4_dataset()
-        ads_ds = get_ads_dataset()
+        ga4_ds = (ctx.get("ga4_dataset") if ctx else None) or get_ga4_dataset()
+        ads_ds = (ctx.get("ads_dataset") if ctx else None) or get_ads_dataset()
         ds = data.get("datasets") or {}
         subset = {k: v for k, v in ds.items() if k in (ga4_ds, ads_ds)}
         if subset:
-            project = data.get("bq_source_project") or get_bq_source_project()
+            project = (ctx.get("bq_source_project") if ctx else None) or data.get("bq_source_project") or get_bq_source_project()
             hints = (
                 "GA4 events_*: use UNNEST(event_params), UNNEST(items); filter by event_date. "
                 "Ads: filter by segments_date. Funnel: event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'). "

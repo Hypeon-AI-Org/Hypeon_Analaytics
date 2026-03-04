@@ -1,7 +1,0 @@
-{
-  "question": "Which two products are most often bought together? \u2014 basket analysis, co-purchase pairs",
-  "answer": "# Most Often Co-Purchased Products\n\nBased on basket analysis from the `fct_order_items` table, the **two products most often bought together** are:\n\n| Product 1 | Product 2 | Co-Purchases |\n|-----------|-----------|--------------|\n| **The right glue for your wallpaper (4 rolls 20 m2)** (FT5000-0005) | **Wallpaper Kit \u2013 Medium** (FT5000-0055) | **8** |\n\n## Key Insights\n\n- This product pair was purchased together **8 times**, significantly more than any other combination\n- The pairing makes logical sense: customers buying wallpaper kits also purchase the adhesive needed for installation\n- The next most common pairings involve the same wallpaper glue product paired with individual wallpaper designs (3 co-purchases each)",
-  "data_rows": 500,
-  "session_id": "sim-4",
-  "success": true
-}

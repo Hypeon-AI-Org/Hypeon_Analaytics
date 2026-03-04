@@ -1,7 +1,0 @@
-{
-  "question": "Which landing pages generate revenue, not just traffic \u2014 entry page \u2192 order attribution",
-  "answer": "I couldn't find relevant data for that question. Queries tried: WITH landing_pages AS (\n  SELECT\n    page_location,\n    user_pseudo_id,\n    event_date,\n    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp ASC) as page_rank\n  FROM `hypeon-ai-prod.hypeon_marts.stg_ga4__events`\n  WHERE page_location IS NOT NULL\n    AND event_name IN ('page_view', 'session_start')\n),\nfirst_landing_pages AS (\n  SELECT\n    page_location,\n    user_pseudo_id,\n    event_date\n  FROM landing_pages\n  WHERE page_rank = 1\n),\nuser_purchases AS (\n  SELECT\n    user_pse.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
-  "session_id": "sim-17",
-  "success": false
-}

@@ -71,10 +71,10 @@ def _serialize_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
-def _rank_tables_by_intent(tables: List[dict], intent: str) -> List[dict]:
+def _rank_tables_by_intent(tables: List[dict], intent: str, organization_id: Optional[str] = None) -> List[dict]:
     """Rank by keyword + synonym overlap. Then sort marts first, then by score."""
     tokens = expand_intent_tokens(intent)
-    marts = get_marts_datasets()
+    marts = get_marts_datasets(organization_id)
     scored: List[tuple[float, int, dict]] = []  # (score, tier: 0=marts 1=raw, table)
     for t in tables:
         ds = (t.get("dataset") or "").strip().lower()
@@ -92,16 +92,17 @@ def _rank_tables_by_intent(tables: List[dict], intent: str) -> List[dict]:
     return [t for _, __, t in scored]
 
 
-def discover_tables(intent: str, limit: int = 20) -> List[dict]:
-    """Ranked candidate tables (marts first, then raw). Synonym-aware. Cached."""
+def discover_tables(intent: str, limit: int = 20, organization_id: Optional[str] = None) -> List[dict]:
+    """Ranked candidate tables (marts first, then raw). When organization_id is set, uses org BQ config from Firestore."""
     from ..clients.bigquery import list_tables_for_discovery
 
     limit = min(limit or get_discover_tables_limit(), 50)
-    cached = schema_cache_get(intent)
+    cache_key = f"{organization_id}:{intent}" if (organization_id or "").strip() else intent
+    cached = schema_cache_get(cache_key)
     if cached is not None:
         return cached[:limit]
-    raw = list_tables_for_discovery()
-    ranked = _rank_tables_by_intent(raw, intent)
+    raw = list_tables_for_discovery(organization_id=organization_id)
+    ranked = _rank_tables_by_intent(raw, intent, organization_id=organization_id)
     result = []
     for t in ranked[:limit]:
         columns = []
@@ -117,7 +118,7 @@ def discover_tables(intent: str, limit: int = 20) -> List[dict]:
             "last_updated": t.get("last_updated"),
             "sample_row": {},
         })
-    schema_cache_set(intent, result)
+    schema_cache_set(cache_key, result)
     return result
 
 
@@ -166,7 +167,7 @@ def execute_tool(
                 limit = get_discover_tables_limit()
         else:
             limit = get_discover_tables_limit()
-        candidates = discover_tables(intent, limit=limit)
+        candidates = discover_tables(intent, limit=limit, organization_id=organization_id)
         return json.dumps({"candidates": candidates})
 
     if tool_name == "run_bigquery_sql":

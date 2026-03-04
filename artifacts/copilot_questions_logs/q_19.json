@@ -1,7 +1,0 @@
-{
-  "question": "Where exactly do people drop off in checkout \u2014 paid vs organic \u2014 funnel step comparison",
-  "answer": "I couldn't find relevant data for that question. Queries tried: WITH funnel_data AS (\n  SELECT\n    utm_source,\n    event_name,\n    SUM(unique_users) as users,\n    SUM(events) as event_count\n  FROM `hypeon-ai-prod.hypeon_marts.fct_funnel`\n  WHERE event_name IN ('view_item', 'add_to_cart', 'begin_checkout', 'add_shipping_info', 'add_payment_info', 'purchase')\n    AND utm_source IN ('google', 'organic', 'direct', 'cpc', 'paid_search', 'paid_social')\n  GROUP BY utm_source, event_name\n),\nfunnel_ranked AS (\n  SELECT\n    utm_source,\n    event_name,\n    users,\n    e.... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
-  "session_id": "sim-18",
-  "success": false
-}

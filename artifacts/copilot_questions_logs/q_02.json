@@ -1,7 +1,0 @@
-{
-  "question": "High volume vs high profit products \u2014 units sold vs revenue per order, two-axis sort",
-  "answer": "I couldn't find relevant data for that question. Queries tried: SELECT\n  item_id,\n  item_name,\n  SUM(item_quantity) as total_units_sold,\n  COUNT(DISTINCT transaction_id) as order_count,\n  ROUND(SUM(item_revenue), 2) as total_revenue,\n  ROUND(SUM(item_revenue) / COUNT(DISTINCT transaction_id), 2) as revenue_per_order,\n  ROUND(SUM(item_quantity) / COUNT(DISTINCT transaction_id), 2) as units_per_order\nFROM `hypeon-ai-prod.hypeon_marts.fct_order_items`\nWHERE item_id IS NOT NULL\nGROUP BY item_id, item_name\nORDER BY total_units_sold DESC, total_revenue DESC\nLIMIT .... Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS).",
-  "data_rows": 0,
-  "session_id": "sim-1",
-  "success": false
-}
