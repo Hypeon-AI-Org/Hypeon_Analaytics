@@ -20,6 +20,16 @@ function apiErrorMessage(res, err) {
   return res?.statusText || 'Request failed'
 }
 
+// ----- Current user's organization and datasets (call after login) -----
+export async function fetchMe() {
+  const res = await fetch(`${API_BASE}/api/v1/me`, { headers: await getAuthHeaders() })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
+  return res.json()
+}
+
 // ----- Dashboard API (cache-only, <300ms) -----
 export async function fetchBusinessOverview(params = {}) {
   const sp = new URLSearchParams()

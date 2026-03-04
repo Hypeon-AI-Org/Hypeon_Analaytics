@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { copilotChatStream, copilotChatHistory, fetchCopilotSessions } from './api'
+import { useUserOrg } from './contexts/UserOrgContext'
 
 const COPILOT_SESSION_KEY = 'hypeon_copilot_session_id'
 
@@ -72,6 +73,7 @@ function SidebarLogo({ size = 'sm' }) {
 export default function CopilotChat() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { selectedClientId } = useUserOrg()
   const initialSessionId = location.state?.sessionId || null
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -178,7 +180,7 @@ export default function CopilotChat() {
     setLoading(true)
     if (streamRef.current?.cancel) streamRef.current.cancel()
     const { promise, cancel } = copilotChatStream(
-      { message: text, session_id: sessionIdRef.current || undefined },
+      { message: text, session_id: sessionIdRef.current || undefined, client_id: selectedClientId },
       (ev) => {
         if (ev.phase === 'analyzing' || ev.phase === 'discovering' || ev.phase === 'generating_sql' || ev.phase === 'running_query' || ev.phase === 'formatting') {
           setStreamStatus(ev.message || 'Processing…')

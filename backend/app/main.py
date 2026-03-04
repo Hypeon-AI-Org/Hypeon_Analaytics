@@ -37,7 +37,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import get_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
-from .auth import init_firebase, get_organization_id, get_role_from_token as auth_get_role
+from .auth import init_firebase, get_organization, get_organization_id, get_role_from_token as auth_get_role
 from .config_loader import get
 from .copilot_synthesizer import (
     set_llm_client,
@@ -282,6 +282,50 @@ def _update_insight_status(insight_id: str, organization_id: str, status: str, u
 
 
 # ----- Endpoints -----
+@app.get("/api/v1/me")
+def get_me(
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Return current user's organization and dataset/client list from Firestore. Used after login to scope all data requests."""
+    org_id = get_organization_id(request)
+    org_doc = get_organization(org_id)
+    if not org_doc:
+        return {
+            "organization_id": org_id,
+            "name": None,
+            "client_ids": [1],
+            "ad_channels": [{"client_id": 1, "description": "Default"}],
+        }
+    raw_channels = org_doc.get("ad_channels") or org_doc.get("datasets")
+    client_ids = []
+    ad_channels_list = []
+    if isinstance(raw_channels, list):
+        for ch in raw_channels:
+            if isinstance(ch, dict) and ch.get("client_id") is not None:
+                cid = int(ch["client_id"])
+                client_ids.append(cid)
+                ad_channels_list.append({"client_id": cid, "description": ch.get("description", "")})
+    elif isinstance(raw_channels, dict):
+        for k, v in raw_channels.items():
+            try:
+                cid = int(k)
+            except (TypeError, ValueError):
+                continue
+            client_ids.append(cid)
+            desc = v.get("description", str(v)) if isinstance(v, dict) else str(v)
+            ad_channels_list.append({"client_id": cid, "description": desc})
+    if not client_ids:
+        client_ids = [1]
+        ad_channels_list = [{"client_id": 1, "description": "Default"}]
+    return {
+        "organization_id": org_id,
+        "name": org_doc.get("name"),
+        "client_ids": client_ids,
+        "ad_channels": ad_channels_list,
+    }
+
+
 @app.get("/insights")
 def get_insights(
     request: Request,

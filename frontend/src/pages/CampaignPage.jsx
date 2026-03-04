@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Search, Filter as FilterIcon } from 'lucide-react'
 import { fetchCampaignPerformance } from '../api'
+import { useUserOrg } from '../contexts/UserOrgContext'
 import CampaignTable from '../components/CampaignTable'
 import ErrorBanner from '../components/ErrorBanner'
 import PageReportHeader from '../components/PageReportHeader'
 
 export default function CampaignPage() {
+  const { selectedClientId } = useUserOrg()
   const [data, setData] = useState({ items: [] })
   const [campaignFilter, setCampaignFilter] = useState('')
   const [loading, setLoading] = useState(true)
@@ -14,7 +16,7 @@ export default function CampaignPage() {
   const load = () => {
     setLoading(true)
     setError(null)
-    fetchCampaignPerformance()
+    fetchCampaignPerformance({ client_id: selectedClientId })
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -22,7 +24,7 @@ export default function CampaignPage() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [selectedClientId])
 
   const filteredItems = useMemo(() => {
     const list = data?.items ?? []

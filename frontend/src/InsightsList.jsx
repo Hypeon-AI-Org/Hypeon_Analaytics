@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { fetchInsights, applyRecommendation } from './api'
+import { useUserOrg } from './contexts/UserOrgContext'
 import ErrorBanner from './components/ErrorBanner'
 import PageReportHeader from './components/PageReportHeader'
 
 export default function InsightsList() {
+  const { selectedClientId, clientIds } = useUserOrg()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -15,7 +17,8 @@ export default function InsightsList() {
     setLoading(true)
     setError(null)
     const params = { limit: 50 }
-    if (clientId) params.client_id = parseInt(clientId, 10)
+    const cid = clientId !== '' ? clientId : selectedClientId
+    if (cid != null) params.client_id = typeof cid === 'number' ? cid : parseInt(cid, 10)
     if (statusFilter) params.status = statusFilter
     fetchInsights(params)
       .then((data) => {
@@ -30,7 +33,7 @@ export default function InsightsList() {
 
   useEffect(() => {
     load()
-  }, [clientId, statusFilter])
+  }, [clientId, statusFilter, selectedClientId])
 
   const handleApprove = (insightId) => {
     applyRecommendation(insightId, 'applied')

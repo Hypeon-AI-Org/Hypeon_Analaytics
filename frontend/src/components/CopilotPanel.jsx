@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { copilotChat, copilotChatHistory, fetchCopilotSessions } from '../api'
+import { useUserOrg } from '../contexts/UserOrgContext'
 import DynamicDashboardRenderer from './DynamicDashboardRenderer'
 import DashboardRendererErrorBoundary from './DashboardRendererErrorBoundary'
 
@@ -20,6 +21,7 @@ function formatSessionDate(ts) {
 
 export default function CopilotPanel({ open, onClose, initialQuery = '', explainInsightId = null }) {
   const navigate = useNavigate()
+  const { selectedClientId } = useUserOrg()
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState(initialQuery || '')
   const [loading, setLoading] = useState(false)
@@ -97,6 +99,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
       const res = await copilotChat({
         message: text,
         session_id: sessionIdRef.current || undefined,
+        client_id: selectedClientId,
       })
       if (res.session_id) {
         sessionIdRef.current = res.session_id

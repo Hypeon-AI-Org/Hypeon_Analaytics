@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { User, Sparkles } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { UserOrgProvider, useUserOrg } from './contexts/UserOrgContext'
 import Layout from './Layout'
 import DashboardOverview from './pages/DashboardOverview'
 import CampaignPage from './pages/CampaignPage'
@@ -73,13 +74,32 @@ function AnalyticsCopilotSwitch() {
 function PageHeader() {
   const location = useLocation()
   const { user, signOut, isConfigured } = useAuth()
+  const { clientIds, adChannels, selectedClientId, setSelectedClientId } = useUserOrg()
   const path = location.pathname || '/dashboard'
   const title = path === '/dashboard' ? 'Dashboard Overview' : (PAGE_TITLES[path] || PAGE_TITLES['/dashboard'])
+  const showClientSelector = clientIds.length > 1
 
   return (
     <header className="flex-shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur-sm shadow-sm px-6 py-4 flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-bold text-slate-800">{title}</h2>
+        {showClientSelector && (
+          <select
+            value={selectedClientId ?? ''}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v !== '') setSelectedClientId(parseInt(v, 10))
+            }}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+            aria-label="Select dataset / client"
+          >
+            {adChannels.map((ch) => (
+              <option key={ch.client_id} value={ch.client_id}>
+                {ch.description || `Client ${ch.client_id}`}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <AnalyticsCopilotSwitch />
@@ -169,15 +189,17 @@ export default function App() {
             path="/*"
             element={
               <ProtectedRoute>
-                <Layout>
-                  <MainContent openCopilotForInsight={openCopilotForInsight} />
-                </Layout>
-                <CopilotPanel
+                <UserOrgProvider>
+                  <Layout>
+                    <MainContent openCopilotForInsight={openCopilotForInsight} />
+                  </Layout>
+                  <CopilotPanel
                   open={copilotOpen}
                   onClose={() => setCopilotOpen(false)}
                   initialQuery={copilotQuery}
-                  explainInsightId={explainInsightId}
-                />
+                    explainInsightId={explainInsightId}
+                  />
+                </UserOrgProvider>
               </ProtectedRoute>
             }
           />
