@@ -4,6 +4,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, AreaChart, Area,
 } from 'recharts'
 import { fetchGoogleAnalyticsAnalysis } from '../api'
+import { useUserOrg } from '../contexts/UserOrgContext'
 import DateRangePicker from '../components/DateRangePicker'
 import ErrorBanner from '../components/ErrorBanner'
 import PageReportHeader from '../components/PageReportHeader'
@@ -34,6 +35,7 @@ function Skeleton({ className = '' }) {
 }
 
 export default function GoogleAnalyticsPage() {
+  const { selectedClientId } = useUserOrg()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -42,11 +44,11 @@ export default function GoogleAnalyticsPage() {
   const load = useCallback(() => {
     setLoading(true)
     setError(null)
-    fetchGoogleAnalyticsAnalysis(params)
+    fetchGoogleAnalyticsAnalysis({ ...params, client_id: selectedClientId })
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [params])
+  }, [params, selectedClientId])
 
   useEffect(() => { load() }, [load])
 

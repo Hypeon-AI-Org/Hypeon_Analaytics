@@ -20,6 +20,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { fetchBusinessOverview, fetchCampaignPerformance, copilotChat } from '../api'
+import { useUserOrg } from '../contexts/UserOrgContext'
 import DynamicDashboardRenderer from '../components/DynamicDashboardRenderer'
 import DashboardRendererErrorBoundary from '../components/DashboardRendererErrorBoundary'
 import ErrorBanner from '../components/ErrorBanner'
@@ -53,6 +54,7 @@ function useDailyTrend(total, days = 30) {
 }
 
 export default function DashboardHome() {
+  const { selectedClientId } = useUserOrg()
   const [overview, setOverview] = useState(null)
   const [campaigns, setCampaigns] = useState({ items: [] })
   const [campaignFilter, setCampaignFilter] = useState('')
@@ -67,7 +69,7 @@ export default function DashboardHome() {
   const loadOverview = () => {
     setLoading(true)
     setError(null)
-    fetchBusinessOverview()
+    fetchBusinessOverview({ client_id: selectedClientId })
       .then((data) => {
         setOverview(data)
         setLoading(false)
@@ -80,24 +82,24 @@ export default function DashboardHome() {
 
   useEffect(() => {
     loadOverview()
-  }, [])
+  }, [selectedClientId])
 
   useEffect(() => {
     setCampaignsLoading(true)
-    fetchCampaignPerformance()
+    fetchCampaignPerformance({ client_id: selectedClientId })
       .then((data) => {
         setCampaigns(data)
         setCampaignsLoading(false)
       })
       .catch(() => setCampaignsLoading(false))
-  }, [])
+  }, [selectedClientId])
 
   const askCopilot = () => {
     setCopilotSummary(null)
     setCopilotLayout(null)
     setCopilotError(null)
     setCopilotLoading(true)
-    copilotChat({ message: 'How am I performing?' })
+    copilotChat({ message: 'How am I performing?', client_id: selectedClientId })
       .then((res) => {
         setCopilotSummary(res.text || '')
         setCopilotLoading(false)

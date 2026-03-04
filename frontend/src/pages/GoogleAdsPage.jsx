@@ -4,6 +4,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, Area, AreaChart,
 } from 'recharts'
 import { fetchGoogleAdsAnalysis } from '../api'
+import { useUserOrg } from '../contexts/UserOrgContext'
 import DateRangePicker from '../components/DateRangePicker'
 import ErrorBanner from '../components/ErrorBanner'
 import PageReportHeader from '../components/PageReportHeader'
@@ -34,6 +35,7 @@ function Skeleton({ className = '' }) {
 }
 
 export default function GoogleAdsPage() {
+  const { selectedClientId } = useUserOrg()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -44,11 +46,11 @@ export default function GoogleAdsPage() {
   const load = useCallback(() => {
     setLoading(true)
     setError(null)
-    fetchGoogleAdsAnalysis(params)
+    fetchGoogleAdsAnalysis({ ...params, client_id: selectedClientId })
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [params])
+  }, [params, selectedClientId])
 
   useEffect(() => { load() }, [load])
 

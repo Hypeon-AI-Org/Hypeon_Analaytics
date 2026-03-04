@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { fetchFunnel } from '../api'
+import { useUserOrg } from '../contexts/UserOrgContext'
 import ErrorBanner from '../components/ErrorBanner'
 import PageReportHeader from '../components/PageReportHeader'
 
 export default function FunnelPage() {
+  const { selectedClientId } = useUserOrg()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -11,7 +13,7 @@ export default function FunnelPage() {
   const load = () => {
     setLoading(true)
     setError(null)
-    fetchFunnel()
+    fetchFunnel({ client_id: selectedClientId })
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -19,7 +21,7 @@ export default function FunnelPage() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [selectedClientId])
 
   if (loading && !data) {
     return (
