@@ -6,62 +6,81 @@ Supports Option B schema: organizations with "projects" (bq_project + datasets p
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Timeout for Firestore reads so auth does not hang (e.g. slow network).
+FIRESTORE_READ_TIMEOUT_SEC = 8
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="firestore")
 
 # Optional dataset type for resolving which BQ dataset to use (marts, marts_ads, analytics, ga4, ads)
 DATASET_TYPES = ("marts", "marts_ads", "analytics", "ga4", "ads")
 
 
 def _get_firestore():
-    """Return Firestore client if Firebase is initialized. Uses FIRESTORE_DATABASE_ID if set (e.g. hypeon-analytics)."""
+    """Return Firestore client if Firebase is initialized. Uses FIRESTORE_DATABASE_ID (default hypeon-analytics to match seed)."""
     try:
         import os
         from .firebase import is_initialized
         if not is_initialized():
             return None
         from firebase_admin import firestore
-        database_id = os.environ.get("FIRESTORE_DATABASE_ID")
-        if database_id:
-            return firestore.client(database_id=database_id)
-        return firestore.client()
+        database_id = os.environ.get("FIRESTORE_DATABASE_ID", "hypeon-analytics")
+        return firestore.client(database_id=database_id)
     except Exception as e:
         logger.debug("Firestore client unavailable: %s", e)
         return None
 
 
-def get_user(uid: str) -> Optional[dict[str, Any]]:
-    """
-    Read users/{uid} from Firestore.
-    Expected fields: email, displayName, organization_id, role (optional).
-    """
+def _get_user_impl(uid: str) -> Optional[dict[str, Any]]:
     db = _get_firestore()
     if not db:
         return None
+    doc = db.collection("users").document(uid).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def get_user(uid: str) -> Optional[dict[str, Any]]:
+    """
+    Read users/{uid} from Firestore. Uses timeout so auth does not hang.
+    Expected fields: email, displayName, organization_id, role (optional).
+    """
     try:
-        doc = db.collection("users").document(uid).get()
-        if doc.exists:
-            return doc.to_dict()
+        future = _executor.submit(_get_user_impl, uid)
+        return future.result(timeout=FIRESTORE_READ_TIMEOUT_SEC)
+    except FuturesTimeoutError:
+        logger.warning("Firestore get_user(%s) timed out after %ss", uid, FIRESTORE_READ_TIMEOUT_SEC)
         return None
     except Exception as e:
         logger.warning("Firestore get_user(%s) failed: %s", uid, e)
         return None
 
 
-def get_organization(organization_id: str) -> Optional[dict[str, Any]]:
-    """
-    Read organizations/{organization_id} from Firestore.
-    Expected fields: name, ad_channels (or datasets) for client/dataset config.
-    Option B: "projects" array of { bq_project, datasets: [ { bq_dataset, bq_location, type? } ] }.
-    """
+def _get_organization_impl(organization_id: str) -> Optional[dict[str, Any]]:
     db = _get_firestore()
     if not db:
         return None
+    doc = db.collection("organizations").document(organization_id).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def get_organization(organization_id: str) -> Optional[dict[str, Any]]:
+    """
+    Read organizations/{organization_id} from Firestore. Uses timeout so auth does not hang.
+    Expected fields: name, ad_channels (or datasets) for client/dataset config.
+    Option B: "projects" array of { bq_project, datasets: [ { bq_dataset, bq_location, type? } ] }.
+    """
     try:
-        doc = db.collection("organizations").document(organization_id).get()
-        if doc.exists:
-            return doc.to_dict()
+        future = _executor.submit(_get_organization_impl, organization_id)
+        return future.result(timeout=FIRESTORE_READ_TIMEOUT_SEC)
+    except FuturesTimeoutError:
+        logger.warning("Firestore get_organization(%s) timed out after %ss", organization_id, FIRESTORE_READ_TIMEOUT_SEC)
         return None
     except Exception as e:
         logger.warning("Firestore get_organization(%s) failed: %s", organization_id, e)

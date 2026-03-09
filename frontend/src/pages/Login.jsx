@@ -13,7 +13,7 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const from = location.state?.from?.pathname || '/dashboard'
+  const from = location.state?.from?.pathname || '/copilot'
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -42,7 +42,7 @@ export default function Login() {
 
   if (!isConfigured) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className={AUTH_CARD_CLASS}>
           <h1 className="text-xl font-bold text-slate-800 mb-2">Sign in</h1>
           <p className="text-slate-600 text-sm">
@@ -57,7 +57,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30">
+    <div className="min-h-screen flex items-center justify-center bg-white">
       <div className={AUTH_CARD_CLASS}>
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Welcome back</h1>
@@ -74,7 +74,7 @@ export default function Login() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder="you@example.com"
             />
           </div>
@@ -88,7 +88,7 @@ export default function Login() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder="••••••••"
             />
           </div>
@@ -100,19 +100,19 @@ export default function Login() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-xl bg-brand-600 text-white py-3 px-4 font-semibold hover:bg-brand-700 focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-brand-500/25"
+            className="w-full rounded-xl bg-slate-800 text-white py-3 px-4 font-semibold hover:bg-slate-900 focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-black/10"
           >
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
           <p className="text-center text-sm text-slate-600">
-            <Link to="/forgot-password" className="text-brand-600 hover:text-brand-700 font-medium hover:underline">
+            <Link to="/forgot-password" className="text-slate-700 hover:text-slate-900 font-medium hover:underline">
               Forgot password?
             </Link>
           </p>
         </form>
         <p className="mt-6 text-center text-sm text-slate-600">
           Don’t have an account?{' '}
-          <Link to="/signup" className="font-semibold text-brand-600 hover:text-brand-700 hover:underline">
+          <Link to="/signup" className="font-semibold text-slate-700 hover:text-slate-900 hover:underline">
             Sign up
           </Link>
         </p>

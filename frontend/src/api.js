@@ -1,12 +1,16 @@
 import { getApiBase, getApiKey } from './runtimeConfig'
 import { getTokenForRequest } from './apiAuth'
 
+const API_TIMEOUT_MS = 60000
+
 function apiBase() {
   return getApiBase() || ''
 }
 
-async function getAuthHeaders() {
-  const h = { 'X-Organization-Id': 'default' }
+/** @param {string | null | undefined} [organizationId] - org from /me; when provided, used for X-Organization-Id (no fallback). */
+async function getAuthHeaders(organizationId) {
+  const h = {}
+  if (organizationId != null && String(organizationId).trim()) h['X-Organization-Id'] = String(organizationId).trim()
   const token = await getTokenForRequest()
   if (token) h['Authorization'] = `Bearer ${token}`
   const apiKey = getApiKey()
@@ -14,10 +18,28 @@ async function getAuthHeaders() {
   return h
 }
 
+/** fetch with timeout so UI never hangs indefinitely */
+async function fetchWithTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    clearTimeout(id)
+    return res
+  } catch (e) {
+    clearTimeout(id)
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out. Check that the backend is running on port 8001 and try Retry.')
+    }
+    throw e
+  }
+}
+
 function apiErrorMessage(res, err) {
   if (err && typeof err === 'object' && typeof err.detail === 'object' && err.detail?.message) return err.detail.message
   if (err?.message) return err.message
   if (res) {
+    if (res.status === 401) return 'Not signed in or session expired. Try signing in again.'
     if (res.status === 502 || res.status === 503) return 'Backend not reachable. Start the backend on port 8001 and retry.'
     if (res.status === 404) return 'Not found. Ensure backend is running and routes are mounted.'
   }
@@ -26,7 +48,7 @@ function apiErrorMessage(res, err) {
 
 // ----- Current user's organization and datasets (call after login) -----
 export async function fetchMe() {
-  const res = await fetch(`${apiBase()}/api/v1/me`, { headers: await getAuthHeaders() })
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/me`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -38,7 +60,7 @@ export async function fetchMe() {
 export async function fetchBusinessOverview(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${apiBase()}/api/v1/dashboard/business-overview?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dashboard/business-overview?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -49,7 +71,7 @@ export async function fetchBusinessOverview(params = {}) {
 export async function fetchCampaignPerformance(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${apiBase()}/api/v1/dashboard/campaign-performance?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dashboard/campaign-performance?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -60,7 +82,7 @@ export async function fetchCampaignPerformance(params = {}) {
 export async function fetchFunnel(params = {}) {
   const sp = new URLSearchParams()
   if (params.client_id != null) sp.set('client_id', params.client_id)
-  const res = await fetch(`${apiBase()}/api/v1/dashboard/funnel?${sp}`, { headers: await getAuthHeaders() })
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dashboard/funnel?${sp}`, { headers: await getAuthHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
@@ -161,8 +183,24 @@ export async function copilotChatHistory(session_id) {
   return res.json()
 }
 
-export async function fetchCopilotSessions() {
-  const res = await fetch(`${apiBase()}/api/v1/copilot/sessions`, { headers: await getAuthHeaders() })
+/** @param {string | null | undefined} [organizationId] - org from /me; ensures sessions list matches current user org. */
+export async function fetchCopilotSessions(organizationId) {
+  const res = await fetchWithTimeout(
+    `${apiBase()}/api/v1/copilot/sessions`,
+    { headers: await getAuthHeaders(organizationId) },
+    25000
+  )
+  if (!res.ok) throw new Error(res.statusText)
+  return res.json()
+}
+
+/** Delete one or more copilot chat sessions. Returns { deleted, session_ids }. */
+export async function deleteCopilotSessions(sessionIds) {
+  const res = await fetch(`${apiBase()}/api/v1/copilot/sessions/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
+    body: JSON.stringify({ session_ids: sessionIds || [] }),
+  })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
 }
@@ -171,6 +209,19 @@ export async function fetchCopilotSessions() {
 export async function fetchCopilotStoreInfo() {
   const res = await fetch(`${apiBase()}/api/v1/copilot/store-info`, { headers: await getAuthHeaders() })
   if (!res.ok) return null
+  return res.json()
+}
+
+/** Refresh and cache the user's org dataset schema (tables + columns) for Copilot. Valid for 24h. Call after login. */
+export async function refreshCopilotSchema() {
+  const res = await fetch(`${apiBase()}/api/v1/copilot/refresh-schema`, {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || res.statusText)
+  }
   return res.json()
 }
 

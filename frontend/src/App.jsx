@@ -26,7 +26,7 @@ const PAGE_TITLES = {
   '/insights': 'Insights',
   '/copilot': 'Copilot',
   '/dashboard': 'Dashboard',
-  '/': 'Dashboard',
+  '/': 'Copilot',
 }
 
 function AnalyticsCopilotSwitch() {
@@ -38,7 +38,7 @@ function AnalyticsCopilotSwitch() {
     <div
       role="tablist"
       aria-label="Analytics or Copilot view"
-      className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5"
+      className="inline-flex rounded-lg border border-slate-200/80 bg-slate-50/80 p-0.5"
     >
       <button
         type="button"
@@ -74,13 +74,20 @@ function AnalyticsCopilotSwitch() {
 function PageHeader() {
   const location = useLocation()
   const { user, signOut, isConfigured } = useAuth()
-  const { clientIds, adChannels, selectedClientId, setSelectedClientId } = useUserOrg()
-  const path = location.pathname || '/dashboard'
-  const title = path === '/dashboard' ? 'Dashboard Overview' : (PAGE_TITLES[path] || PAGE_TITLES['/dashboard'])
+  const { clientIds, adChannels, selectedClientId, setSelectedClientId, error: orgError, refetch } = useUserOrg()
+  const path = location.pathname || '/copilot'
+  const title = path === '/dashboard' ? 'Dashboard Overview' : (PAGE_TITLES[path] || PAGE_TITLES['/copilot'])
   const showClientSelector = clientIds.length > 1
 
   return (
-    <header className="flex-shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur-sm shadow-sm px-6 py-4 flex items-center justify-between gap-4">
+    <>
+      {orgError && (
+        <div className="flex-shrink-0 px-6 py-2 bg-slate-100 border-b border-slate-200 text-slate-800 text-sm flex items-center justify-between gap-2">
+          <span>{orgError}</span>
+          <button type="button" onClick={() => refetch()} className="text-slate-700 font-medium hover:underline">Retry</button>
+        </div>
+      )}
+    <header className="flex-shrink-0 border-b border-slate-200/60 bg-white px-6 py-3 flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-bold text-slate-800">{title}</h2>
         {showClientSelector && (
@@ -90,7 +97,7 @@ function PageHeader() {
               const v = e.target.value
               if (v !== '') setSelectedClientId(parseInt(v, 10))
             }}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white focus:ring-2 focus:ring-slate-400 focus:border-slate-500"
             aria-label="Select dataset / client"
           >
             {adChannels.map((ch) => (
@@ -117,6 +124,7 @@ function PageHeader() {
         </button>
       </div>
     </header>
+    </>
   )
 }
 
@@ -125,7 +133,7 @@ function ProtectedRoute({ children }) {
   const location = useLocation()
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <p className="text-slate-600">Loading…</p>
       </div>
     )
@@ -138,7 +146,7 @@ function ProtectedRoute({ children }) {
 
 function MainContent({ openCopilotForInsight }) {
   const location = useLocation()
-  const path = location.pathname || '/dashboard'
+  const path = location.pathname || '/copilot'
   const isCopilot = path === '/copilot'
 
   return (
@@ -146,7 +154,7 @@ function MainContent({ openCopilotForInsight }) {
       {!isCopilot && <PageHeader />}
       <div className={`flex-1 flex flex-col min-h-0 ${isCopilot ? 'overflow-hidden' : 'overflow-auto'}`}>
         <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/copilot" replace />} />
           <Route path="/dashboard" element={<DashboardOverview />} />
           <Route path="/campaigns" element={<CampaignPage />} />
           <Route path="/google-ads" element={<GoogleAdsPage />} />

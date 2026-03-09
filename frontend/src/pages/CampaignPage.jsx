@@ -57,7 +57,7 @@ export default function CampaignPage() {
               placeholder="Filter campaigns..."
               value={campaignFilter}
               onChange={(e) => setCampaignFilter(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
             />
           </div>
           <button type="button" aria-label="Filter" className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">

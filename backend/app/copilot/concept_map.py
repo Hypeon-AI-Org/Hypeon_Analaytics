@@ -69,18 +69,16 @@ def resolve_product_id_column(available_columns: Set[str]) -> str | None:
 
 
 def get_marts_datasets(organization_id: Optional[str] = None) -> Set[str]:
-    """Datasets considered 'marts' (try first). When organization_id is set, uses Firestore org config if available."""
-    if organization_id:
-        try:
-            from ..auth.firestore_user import get_org_bq_context
-            ctx = get_org_bq_context(organization_id)
-            if ctx:
-                m = (ctx.get("marts_dataset") or "").strip().lower()
-                ma = (ctx.get("marts_ads_dataset") or "").strip().lower()
-                if m or ma:
-                    return {s for s in (m, ma) if s}
-        except Exception:
-            pass
-    marts = (os.environ.get("MARTS_DATASET") or "hypeon_marts").strip().lower()
-    marts_ads = (os.environ.get("MARTS_ADS_DATASET") or "hypeon_marts_ads").strip().lower()
-    return {marts, marts_ads}
+    """Datasets considered 'marts'. Only from Firestore org config; no env or hardcoded fallback (client privacy)."""
+    if not (organization_id or "").strip():
+        return set()
+    try:
+        from ..auth.firestore_user import get_org_bq_context
+        ctx = get_org_bq_context(organization_id)
+        if not ctx:
+            return set()
+        m = (ctx.get("marts_dataset") or "").strip().lower()
+        ma = (ctx.get("marts_ads_dataset") or "").strip().lower()
+        return {s for s in (m, ma) if s}
+    except Exception:
+        return set()

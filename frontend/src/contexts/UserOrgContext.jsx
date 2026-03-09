@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useAuth } from './AuthContext'
-import { fetchMe } from '../api'
+import { fetchMe, refreshCopilotSchema } from '../api'
 
 const UserOrgContext = createContext({
   organizationId: null,
@@ -55,6 +55,9 @@ export function UserOrgProvider({ children }) {
         if (prev != null && ids.includes(prev)) return prev
         return ids.length > 0 ? ids[0] : 1
       })
+      if (data.organization_id && (data.projects?.length > 0 || data.ad_channels?.length > 0)) {
+        refreshCopilotSchema().catch(() => {})
+      }
     } catch (err) {
       setError(err.message || 'Failed to load your organization')
       setClientIds([1])

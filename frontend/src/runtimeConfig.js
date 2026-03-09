@@ -15,7 +15,13 @@ export function getApiBase() {
 }
 
 export function getApiKey() {
-  return getConfig('VITE_API_KEY') || ''
+  const fromEnv = getConfig('VITE_API_KEY') || ''
+  if (fromEnv) return fromEnv
+  // Dev fallback: so local dev works even if .env wasn't loaded (e.g. before restart). Only on localhost.
+  if (typeof window !== 'undefined' && import.meta.env?.DEV && window.location?.hostname === 'localhost') {
+    return 'dev-local-secret'
+  }
+  return ''
 }
 
 export function getFirebaseConfig() {

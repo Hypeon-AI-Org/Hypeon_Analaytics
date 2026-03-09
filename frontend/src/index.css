@@ -7,43 +7,37 @@
     @apply antialiased;
   }
   body {
-    @apply bg-white min-h-screen text-slate-800;
+    @apply bg-white min-h-screen text-slate-800 font-sans;
   }
 }
 
-/* Copilot page background */
-.copilot-page-bg {
-  background:
-    radial-gradient(
-      1200px 600px at 10% 20%,
-      rgba(253, 231, 243, 0.9),
-      transparent 60%
-    ),
-    radial-gradient(
-      1000px 500px at 90% 30%,
-      rgba(232, 240, 255, 0.9),
-      transparent 55%
-    ),
-    radial-gradient(
-      800px 400px at 50% 100%,
-      rgba(243, 232, 255, 0.8),
-      transparent 60%
-    ),
-    #fcfcfd;
-  color: #111827;
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+/* Code, SQL, pre: use Google Sans Code */
+pre,
+code,
+kbd,
+.font-mono,
+.prose code,
+[class*="sql"] {
+  font-family: "Google Sans Code", ui-monospace, monospace;
 }
 
-/* Glass container utility */
+/* Copilot page background – white */
+.copilot-page-bg {
+  background: #ffffff;
+  color: #111827;
+  font-family: "Open Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Simple premium cards – clean white, minimal shadow (ChatGPT/Claude style) */
 @layer components {
   .glass-container {
-    @apply bg-white/90 backdrop-blur-md border border-slate-200 shadow-[0_8px_32px_0_rgba(39,50,68,0.06)];
+    @apply bg-white border border-slate-200/80 rounded-xl shadow-sm;
   }
   .glass-card {
-    @apply bg-white/95 backdrop-blur-md border border-slate-200 shadow-card rounded-xl;
+    @apply bg-white border border-slate-200/80 rounded-xl shadow-sm;
   }
   .glass-panel {
-    @apply bg-white/90 backdrop-blur-lg border border-slate-200 shadow-[0_8px_32px_0_rgba(39,50,68,0.06)] rounded-2xl;
+    @apply bg-white border border-slate-200/80 rounded-2xl shadow-sm;
   }
 }
 
@@ -128,7 +122,7 @@
   top: 0;
   bottom: 0;
   box-sizing: border-box;
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: "Open Sans", ui-sans-serif, system-ui, sans-serif;
   color: #111827;
   border-top-right-radius: 18px;
   border-bottom-right-radius: 18px;
@@ -354,6 +348,13 @@
   flex-shrink: 0;
 }
 
+/* Logo: black & white everywhere (sidebar, empty state, any future use) */
+.logo-bw,
+.copilot-sidebar .logoWrapper img,
+.copilot-sidebar .logoMini .logoImg img {
+  filter: grayscale(100%);
+}
+
 .copilot-sidebar .brandText {
   font-size: 18px;
   font-weight: 600;
@@ -380,11 +381,9 @@
 }
 
 .copilot-sidebar .topToggle:hover {
-  border-color: rgba(236, 72, 153, 0.38);
-  color: rgba(236, 72, 153, 0.95);
-  box-shadow:
-    0 10px 26px rgba(236, 72, 153, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #171717;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .copilot-sidebar .section {
@@ -444,12 +443,12 @@
 }
 
 .copilot-sidebar .listItem.active {
-  background: rgba(99, 102, 241, 0.12);
-  box-shadow: inset 3px 0 0 rgba(236, 72, 153, 0.9);
+  background: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 3px 0 0 #171717;
 }
 
 .copilot-sidebar .listItem.active:hover {
-  background: rgba(99, 102, 241, 0.16);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .copilot-sidebar .chatTitle {
@@ -645,7 +644,7 @@
 .copilot-sidebar .newChat:focus,
 .copilot-sidebar .menuBtn:focus,
 .copilot-sidebar .backToAnalytics:focus {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.12);
   outline: none;
 }
 

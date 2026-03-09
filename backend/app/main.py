@@ -11,9 +11,12 @@ try:
     from dotenv import load_dotenv
     _root = Path(__file__).resolve().parents[2]  # repo root when main.py is backend/app/main.py
     _env_file = _root / ".env"
-    loaded = load_dotenv(_env_file)
+    loaded = load_dotenv(_env_file, override=True)
     if not loaded and Path.cwd() != _root:
-        loaded = load_dotenv(Path.cwd() / ".env")
+        loaded = load_dotenv(Path.cwd() / ".env", override=True)
+    # When running from backend/, always try parent (repo root) so .env at repo root is found
+    if Path.cwd().name == "backend":
+        loaded = load_dotenv(Path.cwd().parent / ".env", override=True) or loaded
 except Exception as _e:
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -79,8 +82,7 @@ async def lifespan(app: FastAPI):
     import os
     if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
         os.environ["GOOGLE_CLOUD_PROJECT"] = get_bq_project()
-    if not os.environ.get("FIREBASE_PROJECT_ID") and os.environ.get("GOOGLE_CLOUD_PROJECT") == "braided-verve-459208-i6":
-        os.environ["FIREBASE_PROJECT_ID"] = "hypeon-ai-prod"
+    # FIREBASE_PROJECT_ID must be set in production via env; no hardcoded fallback
     try:
         init_firebase()
     except Exception as e:
@@ -92,6 +94,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug("Session store init: %s", e)
     logger.info("Request logging active: every API request will be logged (METHOD path -> status | duration)")
+    _api_key = get_api_key()
+    logger.info("API_KEY (X-API-Key auth for local dev): %s", "set" if (_api_key and _api_key.strip()) else "not set")
     yield
 
 
@@ -195,11 +199,19 @@ def get_role_from_token(request: Request) -> str:
     return auth_get_role(request, get_api_key)
 
 
+# Dev key only when API_KEY is not set (local dev). Production must set API_KEY; dev key is then rejected.
+DEV_API_KEY = "dev-local-secret"
+
+
 def _has_any_auth(request: Request) -> bool:
-    """True if request has Bearer token or valid API key (auth required for all protected routes, including local)."""
-    if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
+    """True if request has valid API key or Bearer token. Prefer X-API-Key so local dev skips Firebase/Firestore."""
+    api_key = get_api_key()
+    req_key = (request.headers.get("X-API-Key") or "").strip().replace("\r", "")
+    if api_key and req_key and (api_key.strip().replace("\r", "") == req_key):
         return True
-    if get_api_key() and request.headers.get("X-API-Key") == get_api_key():
+    if not api_key and req_key == DEV_API_KEY:
+        return True
+    if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
         return True
     return False
 
@@ -216,6 +228,17 @@ def require_role(*allowed: str):
             raise HTTPException(403, detail={"code": "FORBIDDEN", "message": "Insufficient role"})
         return role
     return dep
+
+
+def require_organization(request: Request) -> str:
+    """Require non-empty organization_id from request (Firestore user or header). No fallback."""
+    org = get_organization_id(request)
+    if not org or not org.strip():
+        raise HTTPException(
+            400,
+            detail={"code": "MISSING_ORGANIZATION", "message": "Organization context is required. Sign in with Firebase or send X-Organization-Id."},
+        )
+    return org.strip()
 
 
 # ----- Structured error -----
@@ -242,6 +265,10 @@ class CopilotChatBody(BaseModel):
     message: str = ""
     session_id: Optional[str] = None
     client_id: Optional[int] = None
+
+
+class CopilotSessionsDeleteBody(BaseModel):
+    session_ids: list[str] = Field(default_factory=list, description="Session IDs to delete")
 
 
 # ----- Helpers -----
@@ -303,16 +330,18 @@ def _update_insight_status(insight_id: str, organization_id: str, status: str, u
 def get_me(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
+    org_id: str = Depends(require_organization),
 ):
     """Return current user's organization and dataset list from Firestore. Supports Option B: projects (bq_project + datasets per project)."""
-    org_id = get_organization_id(request)
+    uid = get_user_id(request)
     org_doc = get_organization(org_id)
     if not org_doc:
+        logger.info("User me | org_id=%s user_id=%s (no org doc in Firestore)", org_id, uid or "(none)")
         return {
             "organization_id": org_id,
             "name": None,
-            "client_ids": [1],
-            "ad_channels": [{"client_id": 1, "description": "Default"}],
+            "client_ids": [],
+            "ad_channels": [],
             "projects": [],
         }
     # Option B: org has "projects" array (bq_project + datasets with bq_dataset, bq_location)
@@ -346,6 +375,11 @@ def get_me(
             }
             for p in projects_raw
         ]
+        datasets_summary = [(p.get("bq_project"), d.get("bq_dataset")) for p in projects_raw for d in (p.get("datasets") or [])]
+        logger.info(
+            "User me | org_id=%s user_id=%s org_name=%s datasets=%s",
+            org_id, uid or "(none)", org_doc.get("name"), datasets_summary,
+        )
         return {
             "organization_id": org_id,
             "name": org_doc.get("name"),
@@ -412,13 +446,17 @@ def get_insights(
 def get_insights_top(
     request: Request,
     client_id: Optional[int] = Query(None),
-    top_n: int = Query(None, ge=1, le=50),
+    top_n: Optional[int] = Query(5, ge=1, le=50),
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
     """Top N actionable insights per client (default from config)."""
     org = get_organization_id(request)
     n = top_n or get("top_insights_per_client", 5)
-    items = _top_insights_scoped(org, client_id, n)
+    try:
+        items = _top_insights_scoped(org, client_id, n)
+    except Exception as e:
+        logger.warning("insights/top failed (org=%s): %s", org, e)
+        items = []
     return {"items": [_serialize_item(r) for r in items], "count": len(items), "organization_id": org}
 
 
@@ -638,10 +676,36 @@ def copilot_chat_history(
     return {"session_id": session_id, "messages": messages}
 
 
+@app.post("/api/v1/copilot/refresh-schema")
+def copilot_refresh_schema(
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+):
+    """Refresh and save the current user's org dataset schema (tables + columns) to Firestore. Valid for 24h. Call after login so Copilot can use cached schema."""
+    org = get_organization_id(request)
+    uid = get_user_id(request)
+    from .auth.firestore_user import get_org_bq_context
+    ctx = get_org_bq_context(org)
+    if not ctx or not ctx.get("bq_project"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Datasets are not configured for your organization. Configure BigQuery data sources in organization settings."},
+        )
+    from .clients.bigquery import list_tables_for_discovery
+    from .copilot.schema_cache_firestore import set_cached_schema
+    tables = list_tables_for_discovery(organization_id=org)
+    if not tables:
+        return JSONResponse(status_code=200, content={"ok": True, "tables_count": 0, "message": "No tables found in configured datasets."})
+    written = set_cached_schema(org, ctx["bq_project"], tables)
+    logger.info("Copilot refresh-schema | org_id=%s user_id=%s tables=%d written=%s", org, uid or "(none)", len(tables), written)
+    return {"ok": True, "tables_count": len(tables), "updated_at": time.time() if written else None}
+
+
 @app.get("/api/v1/copilot/store-info")
 def copilot_store_info(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
+    org: str = Depends(require_organization),
 ):
     """Return which session store is used, current org, and user_id (for diagnostics). Sessions are scoped by user."""
     import os
@@ -649,36 +713,90 @@ def copilot_store_info(
     store = get_session_store()
     kind = "firestore" if type(store).__name__ == "FirestoreSessionStore" else "memory"
     db_id = os.environ.get("FIRESTORE_DATABASE_ID") if kind == "firestore" else None
-    org = get_organization_id(request)
     uid = get_user_id(request)
     return {"store": kind, "database_id": db_id, "organization_id": org, "user_id": uid}
+
+
+def _fetch_copilot_sessions(org: str, uid: Optional[str]) -> list:
+    """Run store init + get_sessions in thread so slow Firestore is capped by timeout."""
+    from .copilot.session_memory import get_session_store
+    store = get_session_store()
+    return store.get_sessions(org, uid)
 
 
 @app.get("/api/v1/copilot/sessions")
 def copilot_sessions(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
+    org: str = Depends(require_organization),
 ):
     """Return list of chat sessions for the current user (title, session_id, updated_at). User-scoped so they see their chats on re-login."""
-    org = get_organization_id(request)
     uid = get_user_id(request)
-    from .copilot.session_memory import get_session_store
-    store = get_session_store()
+    logger.info("Copilot GET /sessions start org=%s (timeout=12s)", org)
     try:
         with ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(store.get_sessions, org, uid)
-            sessions = fut.result(timeout=10)
+            fut = ex.submit(_fetch_copilot_sessions, org, uid)
+            sessions = fut.result(timeout=12)
     except FuturesTimeoutError:
         logger.warning("Copilot GET /sessions timed out for org=%s user_id=%s", org, uid or "(none)")
         sessions = []
+    except Exception as e:
+        try:
+            from google.auth.exceptions import RefreshError
+            if isinstance(e, RefreshError):
+                logger.warning(
+                    "Copilot GET /sessions: Google credentials need reauth (org=%s). Run: gcloud auth application-default login",
+                    org,
+                )
+        except ImportError:
+            pass
+        logger.warning("Copilot GET /sessions failed for org=%s: %s", org, e)
+        sessions = []
     logger.info("Copilot GET /sessions org=%s user_id=%s count=%d", org, uid or "(none)", len(sessions))
     return {"sessions": sessions}
+
+
+@app.post("/api/v1/copilot/sessions/delete")
+def copilot_sessions_delete(
+    body: CopilotSessionsDeleteBody,
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+    org: str = Depends(require_organization),
+):
+    """Delete one or more chat sessions for the current user. Returns deleted count."""
+    uid = get_user_id(request)
+    from .copilot.session_memory import get_session_store
+    store = get_session_store()
+    deleted = 0
+    for sid in body.session_ids or []:
+        if sid and store.clear_session(org, sid, user_id=uid):
+            deleted += 1
+    logger.info("Copilot POST /sessions/delete org=%s user_id=%s requested=%d deleted=%d", org, uid or "(none)", len(body.session_ids or []), deleted)
+    return {"deleted": deleted, "session_ids": body.session_ids or []}
 
 
 @app.get("/health")
 def health():
     """Liveness. Copilot queries hypeon_marts directly; no cache dependency."""
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    """Readiness: confirms server is up and auth timeouts are active (for debugging)."""
+    return {"status": "ok", "version": "2.0.0", "auth_timeouts": True}
+
+
+@app.get("/api/v1/debug-auth")
+def debug_auth(request: Request):
+    """No-auth debug: whether API_KEY is set and if request X-API-Key matches (for local dev)."""
+    api_key = get_api_key()
+    req_key = (request.headers.get("X-API-Key") or "").strip()
+    return {
+        "api_key_configured": bool(api_key),
+        "request_has_api_key": bool(req_key),
+        "key_match": bool(api_key and req_key and api_key == req_key),
+    }
 
 
 # Backward-compat alias

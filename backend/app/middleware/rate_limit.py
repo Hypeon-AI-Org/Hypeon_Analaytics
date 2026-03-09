@@ -22,7 +22,7 @@ _store_lock = __import__("threading").Lock()
 
 
 def _key(request: Request) -> str:
-    org = request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "default"
+    org = (request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "").strip()
     forwarded = request.headers.get("X-Forwarded-For")
     ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
     return f"{org}:{ip}"

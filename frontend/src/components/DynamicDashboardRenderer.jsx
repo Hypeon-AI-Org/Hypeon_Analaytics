@@ -14,7 +14,7 @@ import {
   Legend,
 } from 'recharts'
 
-const CHART_COLORS = ['#db2777', '#ec4899', '#f472b6', '#f9a8d4', '#fbcfe8', '#be185d']
+const CHART_COLORS = ['#374151', '#4b5563', '#6b7280', '#9ca3af', '#d1d5db', '#e5e7eb']
 
 export default function DynamicDashboardRenderer({ layout }) {
   if (!layout?.widgets || !Array.isArray(layout.widgets)) {
@@ -71,25 +71,25 @@ function ChartWidget({ widget }) {
       <ResponsiveContainer width="100%" height={200}>
         {chartType === 'line' ? (
           <LineChart data={data}>
-            <XAxis dataKey={x} stroke="#9d174d" fontSize={11} />
-            <YAxis stroke="#9d174d" fontSize={11} />
-            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #fbcfe8' }} />
-            <Line type="monotone" dataKey={y} stroke="#db2777" strokeWidth={2} dot={{ fill: '#db2777' }} />
+            <XAxis dataKey={x} stroke="#64748b" fontSize={11} />
+            <YAxis stroke="#64748b" fontSize={11} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+            <Line type="monotone" dataKey={y} stroke="#374151" strokeWidth={2} dot={{ fill: '#374151' }} />
           </LineChart>
         ) : chartType === 'pie' ? (
           <PieChart>
             <Pie data={data} dataKey={y} nameKey={x} cx="50%" cy="50%" outerRadius={80} label>
               {data.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
             </Pie>
-            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #fbcfe8' }} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
             <Legend />
           </PieChart>
         ) : (
           <BarChart data={data}>
-            <XAxis dataKey={x} stroke="#9d174d" fontSize={11} />
-            <YAxis stroke="#9d174d" fontSize={11} />
-            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #fbcfe8' }} />
-            <Bar dataKey={y} fill="#db2777" radius={[4, 4, 0, 0]} />
+            <XAxis dataKey={x} stroke="#64748b" fontSize={11} />
+            <YAxis stroke="#64748b" fontSize={11} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+            <Bar dataKey={y} fill="#374151" radius={[4, 4, 0, 0]} />
           </BarChart>
         )}
       </ResponsiveContainer>

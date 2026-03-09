@@ -63,16 +63,16 @@ OPTION_B_ORG = {
             "bq_project": "hypeon-ai-prod",
             "project_type": "organization",
             "datasets": [
-                {"bq_dataset": "hypeon_marts", "bq_location": "europe-north2"},
-                {"bq_dataset": "hypeon_marts_ads", "bq_location": "EU"},
+                {"bq_dataset": "hypeon_marts", "bq_location": "europe-north2", "type": "marts"},
+                {"bq_dataset": "hypeon_marts_ads", "bq_location": "EU", "type": "marts_ads"},
             ],
         },
         {
             "bq_project": "braided-verve-459208-i6",
             "project_type": "individual",
             "datasets": [
-                {"bq_dataset": "146568", "bq_location": "EU"},
-                {"bq_dataset": "analytics_444259275", "bq_location": "europe-north2"},
+                {"bq_dataset": "146568", "bq_location": "EU", "type": "ads"},
+                {"bq_dataset": "analytics_444259275", "bq_location": "europe-north2", "type": "ga4"},
             ],
         },
     ],

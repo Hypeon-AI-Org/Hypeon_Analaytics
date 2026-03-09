@@ -58,7 +58,7 @@ export default function InsightsList() {
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
             placeholder="Optional"
-            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm w-24 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm w-24 focus:ring-2 focus:ring-slate-400 focus:border-slate-500"
             aria-label="Filter by client ID"
           />
         </label>
@@ -67,7 +67,7 @@ export default function InsightsList() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-500"
             aria-label="Filter by status"
           >
             <option value="">All</option>
@@ -80,7 +80,7 @@ export default function InsightsList() {
         <button
           type="button"
           onClick={() => load()}
-          className="rounded-xl bg-brand-600 text-white px-3 py-2 text-sm font-medium hover:bg-brand-700 transition-colors"
+          className="rounded-xl bg-slate-800 text-white px-3 py-2 text-sm font-medium hover:bg-slate-900 transition-colors"
         >
           Refresh
         </button>
@@ -109,7 +109,7 @@ export default function InsightsList() {
                     <p className="font-medium text-slate-800">{insight.summary || '—'}</p>
                     <div className="flex flex-wrap gap-2 mt-1">
                       <span
-                        className="inline-flex items-center rounded-lg bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-800"
+                        className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800"
                         aria-label={`Confidence ${insight.confidence}`}
                       >
                         {(insight.confidence != null ? Number(insight.confidence) * 100 : 0).toFixed(0)}% confidence

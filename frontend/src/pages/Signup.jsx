@@ -38,7 +38,7 @@ export default function Signup() {
     setSubmitting(true)
     try {
       await signUp(trimmedEmail, password, displayName.trim() || null)
-      navigate('/dashboard', { replace: true })
+      navigate('/copilot', { replace: true })
     } catch (err) {
       const code = err.code || ''
       let message = err.message || 'Sign up failed.'
@@ -53,13 +53,13 @@ export default function Signup() {
 
   if (!isConfigured) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className={AUTH_CARD_CLASS}>
           <h1 className="text-xl font-bold text-slate-800 mb-2">Sign up</h1>
           <p className="text-slate-600 text-sm">
             Firebase is not configured. Add VITE_FIREBASE_* to .env to enable sign up.
           </p>
-          <Link to="/login" className="mt-4 inline-block text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+          <Link to="/login" className="mt-4 inline-block text-sm font-medium text-slate-700 hover:text-slate-900 hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -68,7 +68,7 @@ export default function Signup() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-white py-8">
       <div className={AUTH_CARD_CLASS}>
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Create an account</h1>
@@ -85,7 +85,7 @@ export default function Signup() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder="you@example.com"
             />
           </div>
@@ -99,7 +99,7 @@ export default function Signup() {
               autoComplete="name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder="Your name"
             />
           </div>
@@ -113,7 +113,7 @@ export default function Signup() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
             />
           </div>
@@ -127,7 +127,7 @@ export default function Signup() {
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder="••••••••"
             />
           </div>
@@ -139,14 +139,14 @@ export default function Signup() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-xl bg-brand-600 text-white py-3 px-4 font-semibold hover:bg-brand-700 focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-brand-500/25"
+            className="w-full rounded-xl bg-slate-800 text-white py-3 px-4 font-semibold hover:bg-slate-900 focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-black/10"
           >
             {submitting ? 'Creating account…' : 'Sign up'}
           </button>
         </form>
         <p className="mt-6 text-center text-sm text-slate-600">
           Already have an account?{' '}
-          <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-700 hover:underline">
+          <Link to="/login" className="font-semibold text-slate-700 hover:text-slate-900 hover:underline">
             Sign in
           </Link>
         </p>

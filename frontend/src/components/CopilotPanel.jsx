@@ -22,7 +22,7 @@ function formatSessionDate(ts) {
 
 export default function CopilotPanel({ open, onClose, initialQuery = '', explainInsightId = null }) {
   const navigate = useNavigate()
-  const { selectedClientId } = useUserOrg()
+  const { selectedClientId, organizationId } = useUserOrg()
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState(initialQuery || '')
   const [loading, setLoading] = useState(false)
@@ -55,6 +55,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             role: m.role,
             text: m.content || '',
             layout: m.layout ?? null,
+            data: m.data ?? null,
           }))
         )
       })
@@ -63,7 +64,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
 
   useEffect(() => {
     if (!open) return
-    fetchCopilotSessions()
+    fetchCopilotSessions(organizationId)
       .then((r) => setSessions(r.sessions || []))
       .catch(() => setSessions([]))
     const stored = sessionStorage.getItem(COPILOT_SESSION_KEY)
@@ -77,6 +78,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
                 role: m.role,
                 text: m.content || '',
                 layout: m.layout ?? null,
+                data: m.data ?? null,
               }))
             )
           }
@@ -87,7 +89,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
       setMessages([])
     }
     if (initialQuery) setInput(initialQuery)
-  }, [open, initialQuery])
+  }, [open, initialQuery, organizationId])
 
   const send = async () => {
     const text = input.trim()
@@ -105,7 +107,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
       if (res.session_id) {
         sessionIdRef.current = res.session_id
         sessionStorage.setItem(COPILOT_SESSION_KEY, res.session_id)
-        fetchCopilotSessions().then((r) => setSessions(r.sessions || [])).catch(() => {})
+        fetchCopilotSessions(organizationId).then((r) => setSessions(r.sessions || [])).catch(() => {})
       }
       setMessages((prev) => [
         ...prev,
@@ -134,17 +136,17 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
   if (!open) return null
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-lg flex flex-col z-50 bg-white/90 backdrop-blur-xl border-l border-slate-200 shadow-glass">
+    <div className="fixed inset-y-0 right-0 w-full max-w-lg flex flex-col z-50 bg-white border-l border-slate-200/80 shadow-lg">
       <div className="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-brand-600 font-semibold" aria-hidden>◎</span>
+          <span className="text-slate-700 font-semibold" aria-hidden>◎</span>
           <h2 className="text-base font-semibold text-slate-800">Copilot</h2>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setHistoryOpen((o) => !o)}
-            className="text-xs text-slate-500 hover:text-brand-600 transition-colors"
+            className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
           >
             {historyOpen ? 'Hide history' : 'Previous chats'}
           </button>
@@ -152,7 +154,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             <button
               type="button"
               onClick={clearChat}
-              className="text-xs text-slate-500 hover:text-brand-600 transition-colors"
+              className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
             >
               New chat
             </button>
@@ -160,7 +162,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
           <button
             type="button"
             onClick={openFullCopilot}
-            className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+            className="text-xs text-slate-700 hover:text-slate-800 font-medium"
           >
             Open in full
           </button>
@@ -182,7 +184,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
                   <button
                     type="button"
                     onClick={() => loadSession(s.session_id)}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-brand-50 truncate rounded-lg mx-2"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 truncate rounded-lg mx-2"
                   >
                     <span className="block truncate">{s.title || 'New chat'}</span>
                     <span className="text-xs text-slate-400">{formatSessionDate(s.updated_at)}</span>
@@ -209,7 +211,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${
                 msg.role === 'user'
-                  ? 'bg-brand-600 text-white'
+                  ? 'bg-slate-800 text-white'
                   : 'glass-card border border-slate-200'
               }`}
             >
@@ -239,9 +241,9 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
         {loading && (
           <div className="flex justify-start">
             <div className="glass-card rounded-2xl px-4 py-2.5 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
-              <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" style={{ animationDelay: '150ms' }} />
-              <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" style={{ animationDelay: '300ms' }} />
+              <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" style={{ animationDelay: '150ms' }} />
+              <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" style={{ animationDelay: '300ms' }} />
               <span className="text-sm text-slate-500 ml-1">Thinking…</span>
             </div>
           </div>
@@ -277,7 +279,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder="Message Copilot…"
-            className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm placeholder-slate-400 focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 bg-white/90"
+            className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm placeholder-slate-400 focus:ring-2 focus:ring-slate-400 focus:border-slate-500 bg-white/90"
             disabled={loading}
             aria-label="Message Copilot"
           />
@@ -285,7 +287,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             type="button"
             onClick={send}
             disabled={loading || !input.trim()}
-            className="rounded-xl bg-brand-600 text-white px-4 py-2.5 text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="rounded-xl bg-slate-800 text-white px-4 py-2.5 text-sm font-medium hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? '…' : 'Send'}
           </button>

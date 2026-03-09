@@ -1,6 +1,6 @@
 """
-Knowledge base for Copilot: schema ONLY from hypeon_marts and hypeon_marts_ads INFORMATION_SCHEMA.
-No static table names. No fallback to discovery or raw datasets. If schema fetch fails, return error.
+Knowledge base for Copilot: schema from org-configured marts datasets (Firestore).
+No hardcoded dataset names. When organization_id is set, uses get_org_bq_context only.
 """
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
-# In-process cache for get_schema_for_copilot() to avoid re-reading on every request.
-_SCHEMA_CACHE: str | None = None
+# In-process cache for get_schema_for_copilot(organization_id): cache_key -> schema text.
+_SCHEMA_CACHE: dict[str, str] = {}
 
 
 def get_bq_project() -> str:
-    return os.environ.get("BQ_PROJECT", "braided-verve-459208-i6")
+    """From env only; no hardcoded default (client privacy)."""
+    return os.environ.get("BQ_PROJECT") or ""
 
 
 def get_bq_source_project() -> str:
@@ -23,22 +24,22 @@ def get_bq_source_project() -> str:
 
 
 def get_analytics_dataset() -> str:
-    return os.environ.get("ANALYTICS_DATASET", "analytics")
+    return os.environ.get("ANALYTICS_DATASET") or ""
 
 
 def get_ads_dataset() -> str:
-    """Dataset for Ads (from .env ADS_DATASET, e.g. 146568). Never delete."""
-    return os.environ.get("ADS_DATASET", "146568")
+    """From env only; no default (client privacy)."""
+    return os.environ.get("ADS_DATASET") or ""
 
 
 def get_ga4_dataset() -> str:
-    """Dataset for GA4 (from .env GA4_DATASET, e.g. analytics_444259275). Never delete."""
-    return os.environ.get("GA4_DATASET", "analytics_444259275")
+    """From env only; no default (client privacy)."""
+    return os.environ.get("GA4_DATASET") or ""
 
 
 def get_marts_dataset() -> str:
-    """Marts dataset (hypeon_marts). Primary schema source for Copilot."""
-    return os.environ.get("MARTS_DATASET", "hypeon_marts")
+    """From env only; no default (client privacy). Copilot uses Firestore org config."""
+    return os.environ.get("MARTS_DATASET") or ""
 
 
 def _discovery_path() -> Path:
@@ -190,6 +191,39 @@ def _flatten_schema(schema: list[dict], prefix: str = "") -> list[tuple[str, str
 _SCHEMA_MAX_CHARS = 55_000
 
 
+def _format_cached_schema(cached: dict) -> str:
+    """Format cached schema (from Firestore) into schema text for Copilot."""
+    project = (cached.get("bq_project") or "").strip()
+    tables = cached.get("tables") or []
+    if not tables:
+        return ""
+    by_key: dict[tuple[str, str], list[str]] = {}
+    for t in tables:
+        ds = (t.get("dataset") or "").strip()
+        tn = (t.get("table_name") or "").strip()
+        cols = [c.get("name") or "" for c in (t.get("columns") or []) if c.get("name")]
+        if ds and tn:
+            by_key[(ds, tn)] = cols
+    datasets = sorted(set(ds for (ds, _) in by_key.keys()))
+    parts = [
+        "## Database: BigQuery (read-only). Schema from your configured datasets (cached).",
+        f"- Project: {project}. Datasets: {', '.join(datasets)}.",
+        "- Use backtick-quoted names: `project.dataset.table`. Use only the tables and columns listed below.",
+        "",
+        "## Tables and columns",
+        "",
+    ]
+    for (ds, table_name) in sorted(by_key.keys()):
+        cols = by_key[(ds, table_name)][:80]
+        col_lines = [f"  - {c}" for c in cols]
+        if len(by_key[(ds, table_name)]) > 80:
+            col_lines.append(f"  - ... and {len(by_key[(ds, table_name)]) - 80} more")
+        parts.append(f"- **{ds}.{table_name}**")
+        parts.extend(col_lines)
+        parts.append("")
+    return "\n".join(parts)
+
+
 def _format_live_marts_schema(rows: list[dict], project: str, marts: str) -> str:
     """Format live INFORMATION_SCHEMA rows into schema text (marts datasets, dynamic)."""
     from collections import defaultdict
@@ -220,35 +254,70 @@ def _format_live_marts_schema(rows: list[dict], project: str, marts: str) -> str
     return "\n".join(parts)
 
 
-def get_schema_for_copilot(use_cache: bool = True) -> str:
+def _get_marts_ctx(organization_id: Optional[str]):
+    """Return Firestore BQ context for marts when organization_id is set; else None (caller may use env)."""
+    if not (organization_id or "").strip():
+        return None
+    try:
+        from ..auth.firestore_user import get_org_bq_context
+        return get_org_bq_context(organization_id)
+    except Exception:
+        return None
+
+
+def get_schema_for_copilot(organization_id: Optional[str] = None, use_cache: bool = True) -> str:
     """
-    Schema ONLY from hypeon_marts and hypeon_marts_ads INFORMATION_SCHEMA (dynamic).
-    No fallback. If fetch fails, return explicit error so the assistant tells the user.
+    Schema from org-configured marts datasets (Firestore only). No env or hardcoded fallback (client privacy).
     """
     global _SCHEMA_CACHE
-    if use_cache and _SCHEMA_CACHE is not None:
-        return _SCHEMA_CACHE
-    project = get_bq_project()
-    marts_ds = get_marts_dataset().strip()
-    marts_ads_ds = os.environ.get("MARTS_ADS_DATASET", "hypeon_marts_ads").strip()
+    cache_key = (organization_id or "").strip() or "__no_org__"
+    if use_cache and cache_key in _SCHEMA_CACHE:
+        return _SCHEMA_CACHE[cache_key]
+
+    if not (organization_id or "").strip():
+        return _schema_error_message("organization_id is required. Datasets are scoped per organization.")
+    ctx = _get_marts_ctx(organization_id)
+    if not ctx:
+        return _schema_error_message(
+            "Datasets are not configured for your organization. Ask your administrator to set up BigQuery data sources in organization settings."
+        )
+    project = (ctx.get("bq_project") or "").strip()
+    marts_ds = (ctx.get("marts_dataset") or "").strip()
+    marts_ads_ds = (ctx.get("marts_ads_dataset") or "").strip()
+
+    # Prefer 24h Firestore schema cache when available for this org
+    if (organization_id or "").strip():
+        try:
+            from .schema_cache_firestore import get_cached_schema
+            cached = get_cached_schema(organization_id)
+            if cached and cached.get("tables"):
+                schema_text = _format_cached_schema(cached)
+                schema_text += _marts_only_rules(project, marts_ds, marts_ads_ds)
+                catalog_section = get_marts_catalog_for_copilot(organization_id)
+                if catalog_section:
+                    schema_text += "\n" + catalog_section
+                _SCHEMA_CACHE[cache_key] = schema_text
+                return schema_text
+        except Exception:
+            pass
 
     try:
         from ..clients.bigquery import get_marts_schema_live
-        live_rows = get_marts_schema_live()
+        live_rows = get_marts_schema_live(organization_id)
         if not live_rows:
             err = _schema_error_message("Marts schema returned no tables. Ensure the configured marts datasets exist and contain base tables or views.")
-            _SCHEMA_CACHE = err
+            _SCHEMA_CACHE[cache_key] = err
             return err
         schema_text = _format_live_marts_schema(live_rows, project, marts_ds)
         schema_text += _marts_only_rules(project, marts_ds, marts_ads_ds)
-        catalog_section = get_marts_catalog_for_copilot()
+        catalog_section = get_marts_catalog_for_copilot(organization_id)
         if catalog_section:
             schema_text += "\n" + catalog_section
-        _SCHEMA_CACHE = schema_text
+        _SCHEMA_CACHE[cache_key] = schema_text
         return schema_text
     except Exception as e:
-        err = _schema_error_message(f"Could not load marts schema: {str(e)[:200]}. Copilot uses only hypeon_marts and hypeon_marts_ads.")
-        _SCHEMA_CACHE = err
+        err = _schema_error_message(f"Could not load marts schema: {str(e)[:200]}. Use only datasets configured for your organization.")
+        _SCHEMA_CACHE[cache_key] = err
         return err
 
 
@@ -261,19 +330,25 @@ def _schema_error_message(detail: str) -> str:
 """
 
 
-def get_marts_catalog_for_copilot() -> str:
+def get_marts_catalog_for_copilot(organization_id: Optional[str] = None) -> str:
     """
-    Load schema + sample rows for marts (hypeon_marts, hypeon_marts_ads).
-    Prefers all_schemas_and_samples.json when present; falls back to copilot_marts_catalog.json.
+    Load schema + sample rows for marts. Only from Firestore org config; no env/hardcoded fallback (client privacy).
     """
+    if not (organization_id or "").strip():
+        return ""
+    ctx = _get_marts_ctx(organization_id)
+    if not ctx:
+        return ""
+    marts_ds = (ctx.get("marts_dataset") or "").strip()
+    marts_ads_ds = (ctx.get("marts_ads_dataset") or "").strip()
+    project = (ctx.get("bq_project") or "").strip()
+
     data = _load_all_schemas_and_samples()
     if data:
-        marts_ds = get_marts_dataset()
-        marts_ads_ds = os.environ.get("MARTS_ADS_DATASET", "hypeon_marts_ads")
         ds = data.get("datasets") or {}
         subset = {k: v for k, v in ds.items() if k in (marts_ds, marts_ads_ds)}
         if subset:
-            project = data.get("bq_project") or get_bq_project()
+            project = project or data.get("bq_project") or get_bq_project()
             hints = (
                 "Prefer marts tables (sessions, orders, ad spend, funnel, dimensions—use whatever tables exist in the schema). "
                 "Date filters required for event/session tables."
@@ -302,7 +377,7 @@ def get_marts_catalog_for_copilot() -> str:
         return ""
     if not isinstance(data, dict):
         return ""
-    project = data.get("project") or get_bq_project()
+    project = project or data.get("project") or get_bq_project()
     hints = (data.get("hints") or "").strip()
     datasets = data.get("datasets") or {}
     parts = [
@@ -314,8 +389,11 @@ def get_marts_catalog_for_copilot() -> str:
     if hints:
         parts.append(f"Catalog hints: {hints}")
         parts.append("")
+    allowed_ds = {marts_ds, marts_ads_ds} if (marts_ds or marts_ads_ds) else None
     for ds_id, ds_obj in sorted(datasets.items()):
         if not isinstance(ds_obj, dict):
+            continue
+        if allowed_ds is not None and ds_id not in allowed_ds:
             continue
         tables = ds_obj.get("tables") or {}
         for table_id, tbl in sorted(tables.items()):
@@ -342,10 +420,11 @@ def get_marts_catalog_for_copilot() -> str:
 
 def _marts_only_rules(project: str, marts: str, marts_ads: str) -> str:
     """Rules for Copilot: schema-agnostic. Use tables/columns from the schema above; no hardcoded table names."""
+    ds_label = ", ".join(s for s in (marts, marts_ads) if s) or "configured for your organization"
     return f"""
 
 ## Allowed tables
-- Use ONLY the tables and columns listed in the schema/catalog above (from datasets {marts}, {marts_ads} or as discovered).
+- Use ONLY the tables and columns listed in the schema/catalog above (from datasets: {ds_label}).
 - Do NOT reference ads_daily_staging, ga4_daily_staging, analytics_cache, decision_store, or raw datasets unless present in the schema.
 
 ## Query behavior (user intent -> SQL)
@@ -381,16 +460,16 @@ def get_raw_schema_for_copilot(organization_id: Optional[str] = None) -> str:
         except Exception:
             pass
     o = (organization_id or "").strip()
-    if o and o.lower() != "default" and not ctx:
+    if o and not ctx:
         return "Datasets are not configured for your organization. Please ask your administrator to set up BigQuery data sources in your organization settings."
     data = _load_all_schemas_and_samples()
-    if data:
-        ga4_ds = (ctx.get("ga4_dataset") if ctx else None) or get_ga4_dataset()
-        ads_ds = (ctx.get("ads_dataset") if ctx else None) or get_ads_dataset()
+    if data and ctx:
+        ga4_ds = (ctx.get("ga4_dataset") or "").strip()
+        ads_ds = (ctx.get("ads_dataset") or "").strip()
         ds = data.get("datasets") or {}
         subset = {k: v for k, v in ds.items() if k in (ga4_ds, ads_ds)}
         if subset:
-            project = (ctx.get("bq_source_project") if ctx else None) or data.get("bq_source_project") or get_bq_source_project()
+            project = (ctx.get("bq_source_project") or ctx.get("bq_project") or "").strip()
             hints = (
                 "GA4 events_*: use UNNEST(event_params), UNNEST(items); filter by event_date. "
                 "Ads: filter by segments_date. Funnel: event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'). "

@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+FIREBASE_VERIFY_TIMEOUT_SEC = 8
+_verify_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="firebase_verify")
 
 _firebase_app = None
 
@@ -32,7 +36,7 @@ def init_firebase() -> None:
             or os.environ.get("GOOGLE_CLOUD_PROJECT")
             or os.environ.get("BQ_PROJECT", "")
         )
-        project_id = (project_id or "").strip() or "hypeon-ai-prod"
+        project_id = (project_id or "").strip() or None
         if cred_path and os.path.isfile(cred_path):
             _firebase_app = firebase_admin.initialize_app(credentials.Certificate(cred_path))
         else:
@@ -49,16 +53,25 @@ def is_initialized() -> bool:
     return _firebase_app is not None and _firebase_app is not False
 
 
+def _verify_id_token_impl(token: str) -> Optional[dict[str, Any]]:
+    from firebase_admin import auth
+    return auth.verify_id_token(token)
+
+
 def verify_id_token(token: str) -> Optional[dict[str, Any]]:
     """
     Verify Firebase ID token and return decoded claims (uid, email, etc.).
+    Uses timeout so auth does not hang on slow network.
     Returns None if Firebase not initialized, token invalid, or expired.
     """
     if not is_initialized():
         return None
     try:
-        from firebase_admin import auth
-        return auth.verify_id_token(token)
+        future = _verify_executor.submit(_verify_id_token_impl, token)
+        return future.result(timeout=FIREBASE_VERIFY_TIMEOUT_SEC)
+    except FuturesTimeoutError:
+        logger.warning("Firebase verify_id_token timed out after %ss", FIREBASE_VERIFY_TIMEOUT_SEC)
+        return None
     except Exception as e:
         logger.debug("Firebase token verification failed: %s", e)
         return None

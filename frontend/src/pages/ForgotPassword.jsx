@@ -39,11 +39,11 @@ export default function ForgotPassword() {
 
   if (!isConfigured) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className={AUTH_CARD_CLASS}>
           <h1 className="text-xl font-bold text-slate-800 mb-2">Reset password</h1>
           <p className="text-slate-600 text-sm">Firebase is not configured.</p>
-          <Link to="/login" className="mt-4 inline-block text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+          <Link to="/login" className="mt-4 inline-block text-sm font-medium text-slate-700 hover:text-slate-900 hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -53,11 +53,11 @@ export default function ForgotPassword() {
 
   if (sent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className={AUTH_CARD_CLASS}>
           <div className="text-center">
-            <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
@@ -66,7 +66,7 @@ export default function ForgotPassword() {
               If an account exists for {email}, we sent a link to reset your password.
             </p>
           </div>
-          <Link to="/login" className="mt-6 block text-center font-semibold text-brand-600 hover:text-brand-700 hover:underline">
+          <Link to="/login" className="mt-6 block text-center font-semibold text-slate-700 hover:text-slate-900 hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -75,7 +75,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-brand-50/30">
+    <div className="min-h-screen flex items-center justify-center bg-white">
       <div className={AUTH_CARD_CLASS}>
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Reset password</h1>
@@ -94,7 +94,7 @@ export default function ForgotPassword() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-shadow"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-300 focus:outline-none transition-shadow"
               placeholder="you@example.com"
             />
           </div>
@@ -106,12 +106,12 @@ export default function ForgotPassword() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-xl bg-brand-600 text-white py-3 px-4 font-semibold hover:bg-brand-700 focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-brand-500/25"
+            className="w-full rounded-xl bg-slate-800 text-white py-3 px-4 font-semibold hover:bg-slate-900 focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-black/10"
           >
             {submitting ? 'Sending…' : 'Send reset link'}
           </button>
         </form>
-        <Link to="/login" className="mt-6 block text-center text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+        <Link to="/login" className="mt-6 block text-center text-sm font-medium text-slate-700 hover:text-slate-900 hover:underline">
           Back to sign in
         </Link>
       </div>

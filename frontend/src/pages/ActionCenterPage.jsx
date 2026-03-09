@@ -71,7 +71,7 @@ export default function ActionCenterPage({ onExplain }) {
           <button
             type="button"
             onClick={() => navigate('/insights')}
-            className="mt-4 rounded-xl border border-brand-200 bg-white px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors"
+            className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           >
             View Insights
           </button>
@@ -84,7 +84,7 @@ export default function ActionCenterPage({ onExplain }) {
               className="glass-card p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
             >
               <div className="flex-1">
-                <span className="inline-flex rounded-lg px-2 py-0.5 text-xs font-medium bg-brand-100 text-brand-800">
+                <span className="inline-flex rounded-lg px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-800">
                   {ACTION_LABEL[action.action] || action.action}
                 </span>
                 <p className="mt-2 text-sm text-slate-700">{action.summary}</p>
@@ -113,7 +113,7 @@ export default function ActionCenterPage({ onExplain }) {
                   <button
                     type="button"
                     onClick={() => onExplain(action.insight_id)}
-                    className="px-3 py-2 text-sm font-medium rounded-xl border border-brand-200 text-brand-700 hover:bg-brand-50 transition-colors"
+                    className="px-3 py-2 text-sm font-medium rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
                   >
                     Explain
                   </button>

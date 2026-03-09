@@ -12,8 +12,15 @@ from .defaults import get_discover_tables_limit
 
 
 def _extract_intent(question: str, context: Optional[List[dict]] = None) -> str:
-    """Short intent phrase from the user question."""
+    """Short intent phrase from the user question; optionally enriched with recent conversation."""
     text = (question or "").strip().lower()
+    if context and isinstance(context, list):
+        for m in context[-4:]:
+            if isinstance(m, dict):
+                content = (m.get("content") or "").strip()
+                if content and len(content) < 300:
+                    text += " " + content.lower()
+    text = text.strip() or "analytics"
     if not text:
         return "analytics"
     stop = {
@@ -57,15 +64,15 @@ def analyze(
 
 
 def _get_project(organization_id: Optional[str] = None) -> str:
+    """Project from Firestore org config only; no env fallback (client privacy)."""
     try:
-        from ..clients.bigquery import _get_bq_context, _project
+        from ..clients.bigquery import _get_bq_context
         ctx = _get_bq_context(organization_id) if organization_id else None
         if ctx and ctx.get("bq_project"):
             return ctx["bq_project"]
-        return _project()
+        return ""
     except Exception:
-        import os
-        return os.environ.get("BQ_PROJECT", "")
+        return ""
 
 
 def replan(

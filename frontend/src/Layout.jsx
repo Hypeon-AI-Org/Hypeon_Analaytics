@@ -41,12 +41,12 @@ function NavSection({ items, path, navigate, sidebarOpen }) {
             title={item.label}
             className={`w-full flex items-center gap-3 rounded-lg pl-3 pr-3 py-2.5 text-sm font-medium transition-all border-l-2 ${
               active
-                ? 'border-brand-400 bg-white/10 text-white'
+                ? 'border-white bg-white/10 text-white'
                 : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200'
             } ${!sidebarOpen ? 'justify-center px-2' : ''}`}
           >
             <Icon
-              className={`flex-shrink-0 ${active ? 'text-brand-400' : 'text-slate-400'}`}
+              className={`flex-shrink-0 ${active ? 'text-white' : 'text-slate-400'}`}
               size={20}
               strokeWidth={2}
               aria-hidden
@@ -62,16 +62,16 @@ function NavSection({ items, path, navigate, sidebarOpen }) {
 export default function Layout({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const path = location.pathname || '/dashboard'
+  const path = location.pathname || '/copilot'
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const showAnalyticsSidebar = path !== '/copilot'
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50/80">
+    <div className="flex h-screen overflow-hidden bg-white">
       {showAnalyticsSidebar && (
         <aside
-          className={`flex-shrink-0 flex flex-col h-full bg-transparent text-white overflow-hidden transition-all duration-200 ${
+          className={`flex-shrink-0 flex flex-col h-full bg-slate-900 text-white overflow-hidden transition-all duration-200 ${
             sidebarOpen ? 'w-60' : 'w-16'
           }`}
         >
@@ -79,7 +79,7 @@ export default function Layout({ children }) {
             {sidebarOpen ? (
               <h1 className="text-lg font-bold tracking-tight truncate">
                 <span className="text-white">HypeOn</span>{' '}
-                <span className="text-brand-400">Analytics</span>
+                <span className="text-slate-300">Analytics</span>
               </h1>
             ) : (
               <span className="text-white font-bold text-sm">H</span>

@@ -1,4 +1,4 @@
-# Build from repo root: docker build -f backend/Dockerfile -t us-central1-docker.pkg.dev/hypeon-ai-prod/hypeon-analytics/backend .
+# Build from repo root: docker build -f backend/Dockerfile -t europe-north2-docker.pkg.dev/hypeon-ai-prod/hypeon-analytics/backend .
 FROM python:3.12-slim
 WORKDIR /app
 ENV PYTHONPATH=/app

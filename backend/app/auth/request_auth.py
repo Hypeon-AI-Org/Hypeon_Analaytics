@@ -17,15 +17,24 @@ def _get_api_key():
     return get_api_key()
 
 
+def _is_localhost_dev_key(request: Request) -> bool:
+    """True when X-API-Key=dev-local-secret (local dev; production should set API_KEY to a secret)."""
+    req_key = (request.headers.get("X-API-Key") or "").strip()
+    return req_key == "dev-local-secret"
+
+
 def require_any_auth(request: Request) -> None:
     """
-    Raise 401 if request has no valid auth (Bearer token or X-API-Key).
-    Use as Depends(require_any_auth) on routes that must require auth for local and prod.
+    Raise 401 if request has no valid auth (X-API-Key or Bearer token).
+    Prefer X-API-Key when both are present so local dev avoids Firebase/Firestore.
     """
-    if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
+    if _is_localhost_dev_key(request):
         return
     api_key = _get_api_key()
-    if api_key and request.headers.get("X-API-Key") == api_key:
+    req_key = (request.headers.get("X-API-Key") or "").strip()
+    if api_key and req_key and api_key == req_key:
+        return
+    if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
         return
     from fastapi import HTTPException
     raise HTTPException(
@@ -71,46 +80,60 @@ def _get_firebase_context(request: Request) -> Tuple[Optional[str], Optional[dic
 
 def get_organization_id(request: Request) -> str:
     """
-    When Bearer token is present and valid, return organization_id from Firestore user doc.
-    Otherwise return X-Organization-Id or X-Org-Id header, or "default".
+    When Bearer token is present and valid, return organization_id from Firestore user doc (preferred).
+    When X-API-Key only, return X-Organization-Id or X-Org-Id header. No fallback; empty when no org.
     """
-    _, user = _get_firebase_context(request)
-    if user and isinstance(user.get("organization_id"), str):
-        return user["organization_id"]
-    return (
-        request.headers.get("X-Organization-Id")
-        or request.headers.get("X-Org-Id")
-        or "default"
-    )
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth.startswith("Bearer "):
+        _, user = _get_firebase_context(request)
+        if user and isinstance(user.get("organization_id"), str) and user["organization_id"].strip():
+            return user["organization_id"].strip()
+    if _is_localhost_dev_key(request):
+        return (request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "").strip()
+    api_key = _get_api_key()
+    req_key = (request.headers.get("X-API-Key") or "").strip()
+    if api_key and req_key and api_key == req_key:
+        return (request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "").strip()
+    return (request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "").strip()
 
 
 def get_user_id(request: Request) -> Optional[str]:
     """
-    When Bearer token is present and valid, return Firebase uid from the token.
-    Used to scope Copilot sessions per user so the same user sees their chats when they log in again.
+    When Bearer token is present and valid, return Firebase uid (preferred).
+    When X-API-Key only, return None.
     """
-    uid, _ = _get_firebase_context(request)
-    return uid
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth.startswith("Bearer "):
+        uid, _ = _get_firebase_context(request)
+        return uid
+    if _is_localhost_dev_key(request):
+        return None
+    api_key = _get_api_key()
+    req_key = (request.headers.get("X-API-Key") or "").strip()
+    if api_key and req_key and api_key == req_key:
+        return None
+    return None
 
 
 def get_role_from_token(request: Request, get_api_key_fn=None) -> str:
     """
-    When Bearer token is present and valid, return role from Firestore user doc (or "analyst" if missing).
-    Otherwise: X-API-Key match -> "admin", Bearer present -> "analyst", else "viewer".
+    When Bearer token is present and valid, return role from Firestore user doc (preferred).
+    Otherwise: X-API-Key match or localhost dev key -> "admin", else "viewer".
     """
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth.startswith("Bearer "):
+        uid, user = _get_firebase_context(request)
+        if uid and user:
+            role = (user.get("role") or "analyst").strip().lower()
+            if role in ("admin", "analyst", "viewer"):
+                return role
+            return "analyst"
+        return "analyst"
+    if _is_localhost_dev_key(request):
+        return "admin"
     if get_api_key_fn:
         api_key = get_api_key_fn()
-        if api_key and request.headers.get("X-API-Key") == api_key:
+        req_key = (request.headers.get("X-API-Key") or "").strip()
+        if api_key and req_key and api_key == req_key:
             return "admin"
-
-    uid, user = _get_firebase_context(request)
-    if uid and user:
-        role = (user.get("role") or "analyst").strip().lower()
-        if role in ("admin", "analyst", "viewer"):
-            return role
-        return "analyst"
-
-    auth = request.headers.get("Authorization")
-    if auth and auth.startswith("Bearer "):
-        return "analyst"
     return "viewer"

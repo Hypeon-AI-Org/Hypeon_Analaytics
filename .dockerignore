@@ -17,3 +17,7 @@ artifacts
 .cursor
 .idea
 .vscode
+# Exclude dev/ops scripts from backend image (app only)
+backend/scripts
+scripts
+docs

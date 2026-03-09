@@ -62,7 +62,7 @@ db.collection("organizations").document("default").set(
 )
 print("Created or updated organizations/default")
 
-# 2) organizations/org_test (Option B: two projects, unique dataset locations)
+# 2) organizations/org_test (Option B: two projects, dataset types for Copilot BQ context)
 OPTION_B_ORG = {
     "name": "Testing (test@hypeon.ai)",
     "projects": [
@@ -70,16 +70,16 @@ OPTION_B_ORG = {
             "bq_project": "hypeon-ai-prod",
             "project_type": "organization",
             "datasets": [
-                {"bq_dataset": "hypeon_marts", "bq_location": "europe-north2"},
-                {"bq_dataset": "hypeon_marts_ads", "bq_location": "EU"},
+                {"bq_dataset": "hypeon_marts", "bq_location": "europe-north2", "type": "marts"},
+                {"bq_dataset": "hypeon_marts_ads", "bq_location": "EU", "type": "marts_ads"},
             ],
         },
         {
             "bq_project": "braided-verve-459208-i6",
             "project_type": "individual",
             "datasets": [
-                {"bq_dataset": "146568", "bq_location": "EU"},
-                {"bq_dataset": "analytics_444259275", "bq_location": "europe-north2"},
+                {"bq_dataset": "146568", "bq_location": "EU", "type": "ads"},
+                {"bq_dataset": "analytics_444259275", "bq_location": "europe-north2", "type": "ga4"},
             ],
         },
     ],

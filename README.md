@@ -34,8 +34,9 @@ Data Sources (Ads BQ, GA4 BQ)
    - `BQ_MARTS_CATALOG_PATH` — optional; path to `copilot_marts_catalog.json` (marts datasets, tables, schema, sample rows). If unset, defaults to `bigquery_schema/copilot_marts_catalog.json`. Generate with `python scripts/copilot_fetch_marts_catalog.py`.
    - `BQ_COPILOT_MAX_BYTES_BILLED_MB` — optional; max bytes billed for Copilot marts queries (default 300). Clamped 50–1024 MB. Increase if fct_sessions queries with date filter still hit the limit.
    - `BQ_COPILOT_RAW_MAX_BYTES_BILLED_MB` — optional; max bytes billed for Copilot raw fallback queries (default 200). Clamped 50–1024 MB.
-   - `API_KEY` — optional; if set, requests use `X-API-Key` header
-   - `CORS_ORIGINS` — comma-separated origins for frontend
+   - `API_KEY` — **required in production**; requests use `X-API-Key` header. Use a strong secret; the dev key is rejected when `API_KEY` is set.
+   - `CORS_ORIGINS` — comma-separated allowed origins (e.g. your frontend URL). Defaults to localhost for local dev only.
+   - `FIREBASE_PROJECT_ID` — **required in production**; Firebase project for Auth and Firestore. Set explicitly; no hardcoded fallback.
 
 3. **Docker & Artifact Registry**
    - **Registry:** `europe-north2-docker.pkg.dev/hypeon-ai-prod/hypeon-analytics`
@@ -45,7 +46,8 @@ Data Sources (Ads BQ, GA4 BQ)
      - `docker tag hypeon-frontend:latest europe-north2-docker.pkg.dev/hypeon-ai-prod/hypeon-analytics/frontend:latest`
      - `docker push europe-north2-docker.pkg.dev/hypeon-ai-prod/hypeon-analytics/backend:latest`
      - `docker push europe-north2-docker.pkg.dev/hypeon-ai-prod/hypeon-analytics/frontend:latest`
-   - **Auth:** `gcloud auth login` and `gcloud auth configure-docker europe-north2-docker.pkg.dev --quiet`. Then deploy to Cloud Run from the Artifact Registry images; set env vars in the Cloud Run service.
+   - **Auth:** `gcloud auth login` and `gcloud auth configure-docker europe-north2-docker.pkg.dev --quiet`. Then deploy to Cloud Run from the Artifact Registry images.
+   - **Production:** Set `API_KEY`, `FIREBASE_PROJECT_ID`, and `CORS_ORIGINS` (and other env) on the Cloud Run service. Build frontend before building the frontend image: `cd frontend && npm run build` then build the image so `dist/` is included (or use a multi-stage build that runs `npm run build` in the image).
 
 ## Running and validating
 

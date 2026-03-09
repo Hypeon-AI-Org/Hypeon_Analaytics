@@ -89,7 +89,7 @@ class FirestoreSessionStore:
         if not db:
             logger.warning("FirestoreSessionStore.append: no db (Firestore client unavailable), session not persisted")
             return
-        org = organization_id or "default"
+        org = (organization_id or "").strip()
         uid = (user_id or "").strip() or None
         now = time.time()
         title = None
@@ -112,7 +112,7 @@ class FirestoreSessionStore:
                 logger.info("FirestoreSessionStore.append: created session %s org=%s", session_id[:16], org)
             else:
                 data = doc.to_dict() or {}
-                if (data.get("organization_id") or "default") != org:
+                if (data.get("organization_id") or "").strip() != org:
                     return
                 doc_uid = data.get("user_id") or ""
                 if doc_uid and doc_uid != (uid or ""):
@@ -144,7 +144,7 @@ class FirestoreSessionStore:
             if not doc.exists:
                 return []
             data = doc.to_dict() or {}
-            if (data.get("organization_id") or "default") != (organization_id or "default"):
+            if (data.get("organization_id") or "").strip() != (organization_id or "").strip():
                 return []
             doc_uid = data.get("user_id") or ""
             if user_id and doc_uid and doc_uid != user_id:
@@ -171,7 +171,7 @@ class FirestoreSessionStore:
         db = self._get_db()
         if not db:
             return []
-        org = organization_id or "default"
+        org = (organization_id or "").strip()
         uid = (user_id or "").strip() or None
         try:
             q = (
@@ -199,6 +199,14 @@ class FirestoreSessionStore:
             out.sort(key=lambda x: (x["updated_at"] or 0), reverse=True)
             return out[:MAX_SESSIONS_LIST]
         except Exception as e:
+            try:
+                from google.auth.exceptions import RefreshError
+                if isinstance(e, RefreshError):
+                    logger.warning(
+                        "FirestoreSessionStore.get_sessions: Google ADC needs reauth. Run: gcloud auth application-default login"
+                    )
+            except ImportError:
+                pass
             logger.warning("FirestoreSessionStore.get_sessions failed: %s", e)
             return []
 
@@ -222,14 +230,16 @@ class FirestoreSessionStore:
             if not doc.exists:
                 return None
             data = doc.to_dict() or {}
-            if (data.get("organization_id") or "default") != (organization_id or "default"):
+            if (data.get("organization_id") or "").strip() != (organization_id or "").strip():
                 return None
             return data.get("context_summary")
         except Exception as e:
             logger.debug("FirestoreSessionStore.get_context_summary failed: %s", e)
             return None
 
-    def clear_session(self, organization_id: str, session_id: str) -> bool:
+    def clear_session(
+        self, organization_id: str, session_id: str, user_id: Optional[str] = None
+    ) -> bool:
         db = self._get_db()
         if not db:
             return False
@@ -238,7 +248,11 @@ class FirestoreSessionStore:
             doc = ref.get()
             if not doc.exists:
                 return False
-            if (doc.to_dict() or {}).get("organization_id") != (organization_id or "default"):
+            data = doc.to_dict() or {}
+            if (data.get("organization_id") or "").strip() != (organization_id or "").strip():
+                return False
+            doc_uid = (data.get("user_id") or "").strip() or None
+            if user_id and doc_uid and doc_uid != user_id:
                 return False
             ref.delete()
             return True
@@ -253,7 +267,7 @@ class SessionMemoryStore:
         self._order: deque = deque(maxlen=max_sessions)
 
     def _key(self, organization_id: str, session_id: str) -> tuple[str, str]:
-        return (organization_id or "default", session_id or "")
+        return ((organization_id or "").strip(), (session_id or "").strip())
 
     def get_or_create_session(self, organization_id: str, session_id: Optional[str] = None) -> SessionState:
         sid = session_id or str(uuid.uuid4())
@@ -262,7 +276,7 @@ class SessionMemoryStore:
             if len(self._store) >= self._order.maxlen:
                 old = self._order.popleft()
                 self._store.pop(old, None)
-            self._store[key] = SessionState(session_id=sid, organization_id=organization_id or "default")
+            self._store[key] = SessionState(session_id=sid, organization_id=(organization_id or "").strip())
             self._order.append(key)
         return self._store[key]
 
@@ -285,7 +299,7 @@ class SessionMemoryStore:
 
     def get_sessions(self, organization_id: str, user_id: Optional[str] = None) -> list[dict]:
         """Return sessions for the org as [{ session_id, title, updated_at }], sorted by updated_at desc. In-memory store is org-scoped only."""
-        org = organization_id or "default"
+        org = (organization_id or "").strip()
         out = []
         for (o, sid), state in self._store.items():
             if o != org:
@@ -305,7 +319,9 @@ class SessionMemoryStore:
         state = self._store.get(self._key(organization_id, session_id))
         return state.context_summary if state else None
 
-    def clear_session(self, organization_id: str, session_id: str) -> bool:
+    def clear_session(
+        self, organization_id: str, session_id: str, user_id: Optional[str] = None
+    ) -> bool:
         key = self._key(organization_id, session_id)
         if key in self._store:
             del self._store[key]
@@ -326,7 +342,7 @@ def get_session_store() -> FirestoreSessionStore | SessionMemoryStore:
         if db is not None:
             if _firestore_store is None:
                 _firestore_store = FirestoreSessionStore()
-                _db_id = os.environ.get("FIRESTORE_DATABASE_ID") or "(default)"
+                _db_id = os.environ.get("FIRESTORE_DATABASE_ID", "hypeon-analytics")
                 logger.info("Copilot session store: Firestore (database=%s)", _db_id)
             return _firestore_store
     except Exception as e:
