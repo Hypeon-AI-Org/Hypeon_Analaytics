@@ -40,6 +40,7 @@ function apiErrorMessage(res, err) {
   if (err?.message) return err.message
   if (res) {
     if (res.status === 401) return 'Not signed in or session expired. Try signing in again.'
+    if (res.status === 400) return 'Sign-in check is slow. Wait a moment and click Retry, or sign out and sign in again.'
     if (res.status === 502 || res.status === 503) return 'Backend not reachable. Start the backend on port 8001 and retry.'
     if (res.status === 404) return 'Not found. Ensure backend is running and routes are mounted.'
   }

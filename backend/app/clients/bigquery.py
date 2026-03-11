@@ -5,10 +5,14 @@ import logging
 import math
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import pandas as pd
+
+# Parallel discovery: max workers for listing datasets and per-dataset table/column fetches.
+_DISCOVERY_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="bq_discovery")
 
 
 def _is_table_not_found(exc: BaseException) -> bool:
@@ -90,28 +94,6 @@ def _source_project() -> str:
     return os.environ.get("BQ_SOURCE_PROJECT") or _project()
 
 
-# Copilot run_sql: ONLY hypeon_marts and hypeon_marts_ads. No raw/staging. No fallback.
-def _copilot_allowed_datasets() -> frozenset[str]:
-    """Only marts datasets allowed. No ads_daily_staging, ga4_daily_staging, analytics_cache, raw."""
-    marts = get_marts_dataset().strip().lower()
-    marts_ads = get_marts_ads_dataset().strip().lower()
-    return frozenset({marts, marts_ads})
-
-
-def _copilot_allowed_tables() -> frozenset[tuple[str, str]] | None:
-    """Set of (dataset, table_name) from marts INFORMATION_SCHEMA. None if schema fetch fails."""
-    rows = get_marts_schema_live()
-    if not rows:
-        return None
-    out: set[tuple[str, str]] = set()
-    for r in rows:
-        ds = (r.get("dataset") or "").strip().lower()
-        tn = (r.get("table_name") or "").strip().lower()
-        if ds and tn:
-            out.add((ds, tn))
-    return frozenset(out) if out else None
-
-
 def run_readonly_query(
     sql: str,
     client_id: int,
@@ -120,7 +102,8 @@ def run_readonly_query(
     timeout_sec: float = 15.0,
 ) -> dict:
     """
-    Run a read-only BigQuery query for Copilot. Validates SELECT only and allowed tables.
+    Run a read-only BigQuery query for Copilot. Validates SELECT only.
+    Tables must be in the org's allowed set (from Firestore-configured datasets only). No hardcoded dataset names.
     Returns {"rows": [...], "error": None} or {"rows": [], "error": "message"}.
     """
     import re
@@ -129,13 +112,20 @@ def run_readonly_query(
     sql = (sql or "").strip()
     if not sql:
         return {"rows": [], "error": "Empty query."}
+    if not (organization_id or "").strip():
+        return {"rows": [], "error": "organization_id is required. Datasets are scoped per organization."}
 
-    # Single statement only: no semicolon (except trailing)
+    ctx = _get_bq_context(organization_id)
+    if not ctx or not ctx.get("bq_project"):
+        return {"rows": [], "error": MSG_ORG_DATASETS_NOT_CONFIGURED}
+
+    allowed_tables = _get_org_allowed_tables(organization_id)
+    if not allowed_tables:
+        return {"rows": [], "error": "No tables loaded for your organization. Refresh the page to load your data sources, then try again."}
+
     sql_normalized = sql.rstrip(";").strip()
     if ";" in sql_normalized:
         return {"rows": [], "error": "Only a single SELECT statement is allowed."}
-
-    # Must be SELECT only (allow WITH ... SELECT)
     upper = sql_normalized.upper()
     if not upper.startswith("SELECT") and not upper.startswith("WITH"):
         return {"rows": [], "error": "Only SELECT (or WITH ... SELECT) queries are allowed."}
@@ -143,47 +133,32 @@ def run_readonly_query(
         if verb in upper:
             return {"rows": [], "error": f"Only read-only SELECT is allowed (no {verb})."}
 
-    project = _project().lower()
-    allowed_datasets = _copilot_allowed_datasets()
-    # Runtime validation: only tables that exist in marts INFORMATION_SCHEMA
-    allowed_tables = _copilot_allowed_tables()
-    if allowed_tables is None:
-        return {"rows": [], "error": "Could not load marts schema. Copilot uses only hypeon_marts and hypeon_marts_ads."}
     pattern = r"`([^`]+)`"
-    for match in re.finditer(pattern, sql):
+    for match in re.finditer(pattern, sql_normalized):
         ref = match.group(1).strip().lower()
         parts = ref.split(".")
         if len(parts) != 3:
             continue
         ref_project, ref_dataset, table_part = parts
-        if ref_project != project:
-            return {"rows": [], "error": f"Only tables in project {_project()} are allowed."}
-        if ref_dataset not in allowed_datasets:
-            return {"rows": [], "error": f"Dataset not allowed: {ref_dataset}. Use only hypeon_marts or hypeon_marts_ads."}
-        if (ref_dataset, table_part) not in allowed_tables:
-            return {"rows": [], "error": f"Table {ref_dataset}.{table_part} is not in marts schema. Allowed: fct_sessions (hypeon_marts), fct_ad_spend (hypeon_marts_ads), and related views."}
+        key = (ref_project, ref_dataset, table_part)
+        if key not in allowed_tables:
+            return {"rows": [], "error": f"Table {ref_dataset}.{table_part} is not available for your organization. Use only tables from your configured datasets."}
 
-    # Enforce LIMIT if not present (BigQuery allows no LIMIT but we want to cap rows)
     if "LIMIT" not in upper:
         sql_normalized = f"{sql_normalized} LIMIT {max_rows}"
-
-    # Configurable bytes cap so fct_sessions with date filter can succeed (default 300 MB)
     try:
         max_mb = int(os.environ.get("BQ_COPILOT_MAX_BYTES_BILLED_MB", "300"))
-        max_mb = max(50, min(max_mb, 1024))  # clamp 50 MB–1 GB
+        max_mb = max(50, min(max_mb, 1024))
     except (TypeError, ValueError):
         max_mb = 300
     max_bytes_billed = max_mb * 1024 * 1024
 
-    client = get_client()
+    client = get_client(project=ctx["bq_project"], location=ctx.get("bq_location") or "europe-north2")
     job_config = bigquery.QueryJobConfig(maximum_bytes_billed=max_bytes_billed)
     try:
         query_job = client.query(sql_normalized, job_config=job_config)
-        # Wait with timeout; then fetch up to max_rows
         iterator = query_job.result(max_results=max_rows, timeout=timeout_sec)
-        rows = []
-        for row in iterator:
-            rows.append(dict(row.items()))
+        rows = [dict(row.items()) for row in iterator]
         return {"rows": rows, "error": None}
     except Exception as e:
         return {"rows": [], "error": str(e)[:300]}
@@ -368,11 +343,11 @@ def run_bigquery_sql_readonly(
         max_mb = 300
     max_bytes_billed = max_mb * 1024 * 1024
 
-    # No env fallback: BQ config only from Firestore org (client privacy).
+    # No env fallback: BQ config only from Firestore org (client privacy). Each org has its own configured datasets.
     if not (organization_id or "").strip():
         return {"rows": [], "schema": [], "row_count": 0, "stats": {}, "error": "organization_id is required. Datasets are scoped per organization."}
     ctx = _get_bq_context(organization_id)
-    if not ctx or not ctx.get("bq_project") or not (ctx.get("marts_dataset") or ctx.get("marts_ads_dataset")):
+    if not ctx or not ctx.get("bq_project"):
         return {"rows": [], "schema": [], "row_count": 0, "stats": {}, "error": MSG_ORG_DATASETS_NOT_CONFIGURED}
 
     # Per-user table allowlist: only tables discovered for this org (cache or live).
@@ -421,6 +396,48 @@ def run_bigquery_sql_readonly(
         return {"rows": [], "schema": [], "row_count": 0, "stats": {}, "error": str(e)[:300]}
 
 
+def _fetch_one_dataset_tables(proj: str, dataset: str, loc: str) -> List[dict]:
+    """Fetch all tables and columns for one project.dataset. Used in parallel by list_tables_for_discovery."""
+    from google.cloud import bigquery
+    out: List[dict] = []
+    try:
+        client = bigquery.Client(project=proj, location=loc)
+        tables_sql = f"""
+        SELECT table_catalog, table_schema, table_name
+        FROM `{proj}.{dataset}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_type IN ('BASE TABLE', 'VIEW')
+        """
+        tbl_job = client.query(tables_sql)
+        rows = list(tbl_job.result())
+        for row in rows:
+            catalog = row.get("table_catalog") or proj
+            schema = row.get("table_schema") or dataset
+            table_name = (row.get("table_name") or "").strip()
+            if not table_name:
+                continue
+            cols_sql = f"""
+            SELECT column_name, data_type
+            FROM `{proj}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
+            WHERE table_name = @tname
+            ORDER BY ordinal_position
+            """
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[bigquery.ScalarQueryParameter("tname", "STRING", table_name)]
+            )
+            col_job = client.query(cols_sql, job_config=job_config)
+            columns = [{"name": r.get("column_name"), "data_type": r.get("data_type")} for r in col_job.result()]
+            out.append({
+                "project": catalog,
+                "dataset": schema,
+                "table_name": table_name,
+                "columns": columns,
+                "last_updated": None,
+            })
+    except Exception as e:
+        logging.getLogger(__name__).debug("Discovery failed for %s.%s: %s", proj, dataset, e)
+    return out
+
+
 def list_tables_for_discovery(
     project: str | None = None,
     datasets: list[str] | None = None,
@@ -428,120 +445,107 @@ def list_tables_for_discovery(
     organization_id: Optional[str] = None,
 ) -> list[dict]:
     """
-    List BASE TABLEs from INFORMATION_SCHEMA for the given project/datasets.
-    When organization_id is set and org has Firestore projects, uses org BQ config; else env.
+    List BASE TABLEs from INFORMATION_SCHEMA for the given organization.
+    Uses only Firestore org config: ALL configured project×dataset pairs (Google Ads, GA4, Meta, Pinterest, etc.).
+    Fetches all datasets in parallel for lower latency.
     Returns list of {"project", "dataset", "table_name", "columns": [{"name", "data_type"}], "last_updated": ...}.
     """
-    from google.cloud import bigquery
-
-    ctx = _get_bq_context(organization_id) if organization_id else None
+    if not (organization_id or "").strip():
+        return []
+    ctx = _get_bq_context(organization_id)
     if _org_requires_bq_config(organization_id) and not ctx:
         return []
-    if (organization_id or "").strip() and not ctx:
-        return []
-    # No env fallback: datasets only from Firestore org config (client privacy).
     if not ctx or not ctx.get("bq_project"):
         return []
-    project = project or ctx["bq_project"]
-    if datasets is None:
-        datasets = []
-        for key in ("marts_dataset", "marts_ads_dataset", "ga4_dataset", "ads_dataset"):
-            v = (ctx.get(key) or "").strip()
-            if v:
-                datasets.append(v)
-    if not datasets:
-        return []
-    default_location = ctx.get("bq_location") or "europe-north2"
-    location_ads = ctx.get("bq_location_ads") or "EU"
-    marts_ds = (ctx.get("marts_dataset") or "").strip()
-    marts_ads_ds = (ctx.get("marts_ads_dataset") or "").strip()
-    dataset_locations: dict[str, str] = {}
-    if marts_ds:
-        dataset_locations[marts_ds.strip().lower()] = default_location
-    if marts_ads_ds:
-        dataset_locations[marts_ads_ds.strip().lower()] = location_ads
-    out: list[dict] = []
 
-    for dataset in datasets:
-        dataset = (dataset or "").strip()
-        if not dataset:
-            continue
-        loc = dataset_locations.get(dataset.lower()) or default_location
-        client = bigquery.Client(project=project, location=loc)
+    all_configs: List[dict] = []
+    try:
+        from ..auth.firestore_user import get_org_all_dataset_configs
+        all_configs = get_org_all_dataset_configs(organization_id.strip())
+    except Exception:
+        pass
+
+    if not all_configs:
+        return []
+
+    configs_to_fetch = []
+    for cfg in all_configs:
+        proj = (cfg.get("bq_project") or "").strip()
+        dataset = (cfg.get("bq_dataset") or "").strip()
+        loc = (cfg.get("bq_location") or "").strip() or "europe-north2"
+        if proj and dataset:
+            configs_to_fetch.append((proj, dataset, loc))
+
+    out: List[dict] = []
+    if len(configs_to_fetch) == 1:
+        p, d, loc = configs_to_fetch[0]
+        out = _fetch_one_dataset_tables(p, d, loc)
+    else:
+        futures = {_DISCOVERY_EXECUTOR.submit(_fetch_one_dataset_tables, p, d, loc): (p, d) for p, d, loc in configs_to_fetch}
         try:
-            tables_sql = f"""
-            SELECT table_catalog, table_schema, table_name
-            FROM `{project}.{dataset}.INFORMATION_SCHEMA.TABLES`
-            WHERE table_type IN ('BASE TABLE', 'VIEW')
-            """
-            tbl_job = client.query(tables_sql)
-            for row in tbl_job.result():
-                catalog = row.get("table_catalog") or project
-                schema = row.get("table_schema") or dataset
-                table_name = (row.get("table_name") or "").strip()
-                if not table_name:
-                    continue
-                cols_sql = f"""
-                SELECT column_name, data_type
-                FROM `{project}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
-                WHERE table_name = @tname
-                ORDER BY ordinal_position
-                """
-                job_config = bigquery.QueryJobConfig(
-                    query_parameters=[bigquery.ScalarQueryParameter("tname", "STRING", table_name)]
-                )
-                col_job = client.query(cols_sql, job_config=job_config)
-                columns = [{"name": r.get("column_name"), "data_type": r.get("data_type")} for r in col_job.result()]
-                out.append({
-                    "project": catalog,
-                    "dataset": schema,
-                    "table_name": table_name,
-                    "columns": columns,
-                    "last_updated": None,
-                })
-        except Exception:
-            continue
+            for future in as_completed(futures, timeout=90):
+                try:
+                    out.extend(future.result())
+                except Exception:
+                    pass
+        except FuturesTimeoutError:
+            # Return whatever we have; log incomplete discovery
+            done = sum(1 for f in futures if f.done())
+            logging.getLogger(__name__).warning(
+                "Discovery timed out: %s of %s datasets completed. Returning partial results.",
+                done, len(configs_to_fetch),
+            )
+            for future in futures:
+                if future.done():
+                    try:
+                        out.extend(future.result())
+                    except Exception:
+                        pass
     return out
 
 
-def get_marts_schema_live(organization_id: Optional[str] = None) -> list[dict] | None:
+def get_org_schema_live(organization_id: Optional[str] = None) -> list[dict] | None:
     """
-    Fetch live schema from marts datasets for Copilot.
-    When organization_id is set and org has Firestore projects, uses org BQ config; else env.
-    When organization_id is set and org has no config, returns None (no shared env fallback).
+    Fetch live schema from ALL datasets configured for this organization (Firestore).
+    No hardcoded dataset names; returns columns for every project×dataset in org config.
     Returns list of {"table_name": str, "column_name": str, "dataset": str} or None on error.
     """
-    logger = logging.getLogger(__name__)
-    ctx = _get_bq_context(organization_id) if organization_id else None
-    if _org_requires_bq_config(organization_id) and (not ctx or not (ctx.get("marts_dataset") or ctx.get("marts_ads_dataset"))):
+    if not (organization_id or "").strip():
         return None
-    if (organization_id or "").strip() and not ctx:
+    try:
+        from ..auth.firestore_user import get_org_all_dataset_configs
+        configs = get_org_all_dataset_configs(organization_id.strip())
+    except Exception:
         return None
-    # No env fallback: only Firestore org config (client privacy).
-    if not ctx or not ctx.get("bq_project") or not (ctx.get("marts_dataset") or ctx.get("marts_ads_dataset")):
+    if not configs:
         return None
-    project = ctx["bq_project"]
-    marts = (ctx.get("marts_dataset") or "").strip()
-    marts_ads = (ctx.get("marts_ads_dataset") or "").strip()
-    location = (ctx.get("bq_location") or "").strip() or "europe-north2"
-    location_ads = (ctx.get("bq_location_ads") or "").strip() or "EU"
     out: list[dict] = []
     try:
         from google.cloud import bigquery
-        for ds, loc in [(marts, location), (marts_ads, location_ads)]:
-            if not (ds or "").strip():
+        for cfg in configs:
+            proj = (cfg.get("bq_project") or "").strip()
+            ds = (cfg.get("bq_dataset") or "").strip()
+            loc = (cfg.get("bq_location") or "").strip() or "europe-north2"
+            if not proj or not ds:
                 continue
-            client = bigquery.Client(project=project, location=loc)
-            q = f"SELECT table_name, column_name FROM `{project}.{ds}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name, ordinal_position"
-            df = client.query(q).to_dataframe()
-            if not df.empty:
-                for r in df.to_dict("records"):
-                    r["dataset"] = ds
-                    out.append(r)
+            try:
+                client = bigquery.Client(project=proj, location=loc)
+                q = f"SELECT table_name, column_name FROM `{proj}.{ds}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name, ordinal_position"
+                df = client.query(q).to_dataframe()
+                if not df.empty:
+                    for r in df.to_dict("records"):
+                        r["dataset"] = ds
+                        out.append(r)
+            except Exception:
+                continue
         return out if out else None
     except Exception as e:
-        logger.warning("get_marts_schema_live failed (project=%s, marts=%s, marts_ads=%s): %s", project, marts, marts_ads, e, exc_info=True)
+        logging.getLogger(__name__).warning("get_org_schema_live failed: %s", e, exc_info=True)
         return None
+
+
+# Backward compatibility for tests/callers that still reference the old name.
+get_marts_schema_live = get_org_schema_live
 
 
 # GA4 events that represent a product/item view (for get_item_views_count)

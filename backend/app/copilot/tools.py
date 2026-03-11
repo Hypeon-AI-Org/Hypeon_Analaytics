@@ -1,21 +1,21 @@
 """
-Copilot tools: discover_tables (marts-first, synonym-aware) + run_bigquery_sql. Read-only.
+Copilot tools: discover_tables (synonym-aware ranking) + run_bigquery_sql. Read-only. All datasets from org config (no hardcoded names).
 """
 from __future__ import annotations
 
 import json
 import math
 import re
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Set
 
-from .concept_map import expand_intent_tokens, get_marts_datasets
-from .defaults import get_discover_tables_limit
+from .concept_map import expand_intent_tokens
+from .defaults import get_discover_tables_limit, get_max_tables_per_dataset
 from .schema_cache import schema_cache_get, schema_cache_set
 
 COPILOT_TOOLS = [
     {
         "name": "discover_tables",
-        "description": "Get candidate tables for a question (marts first, then raw). Returns project, dataset, table, columns. Use before writing SQL.",
+        "description": "Get candidate tables for a question from your configured datasets. Returns project, dataset, table, columns. Use before writing SQL.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -72,12 +72,10 @@ def _serialize_rows(rows: list[dict]) -> list[dict]:
 
 
 def _rank_tables_by_intent(tables: List[dict], intent: str, organization_id: Optional[str] = None) -> List[dict]:
-    """Rank by keyword + synonym overlap. Then sort marts first, then by score."""
+    """Rank by keyword + synonym overlap (score only). No hardcoded dataset types; all tables from org config."""
     tokens = expand_intent_tokens(intent)
-    marts = get_marts_datasets(organization_id)
-    scored: List[tuple[float, int, dict]] = []  # (score, tier: 0=marts 1=raw, table)
+    scored: List[tuple[float, dict]] = []
     for t in tables:
-        ds = (t.get("dataset") or "").strip().lower()
         table_name = (t.get("table_name") or "").lower()
         cols = t.get("columns") or []
         col_names = [(c.get("name") or "").lower() for c in cols if c.get("name")]
@@ -86,25 +84,52 @@ def _rank_tables_by_intent(tables: List[dict], intent: str, organization_id: Opt
         match = len(tokens & all_tokens)
         col_match = sum(1 for c in col_names if c in tokens)
         score = match + 0.5 * col_match
-        tier = 0 if ds in marts else 1
-        scored.append((score, tier, t))
-    scored.sort(key=lambda x: (-x[0], x[1]))  # high score first, marts (0) before raw (1)
-    return [t for _, __, t in scored]
+        scored.append((score, t))
+    scored.sort(key=lambda x: -x[0])
+    return [t for _, t in scored]
 
 
-def discover_tables(intent: str, limit: int = 20, organization_id: Optional[str] = None) -> List[dict]:
-    """Ranked candidate tables (marts first, then raw). When organization_id is set, uses org BQ config from Firestore."""
+def _apply_per_dataset_cap(ranked: List[dict], limit: int, max_per_dataset: int) -> List[dict]:
+    """Ensure no single dataset dominates: at most max_per_dataset tables per dataset, then take up to limit total."""
+    per_ds_count: dict = {}
+    out: List[dict] = []
+    for t in ranked:
+        if len(out) >= limit:
+            break
+        ds = (t.get("dataset") or "").strip()
+        n = per_ds_count.get(ds, 0)
+        if n < max_per_dataset:
+            per_ds_count[ds] = n + 1
+            out.append(t)
+    return out
+
+
+def discover_tables(
+    intent: str,
+    limit: int = 20,
+    organization_id: Optional[str] = None,
+    exclude_datasets: Optional[Set[str]] = None,
+) -> List[dict]:
+    """Ranked candidate tables from org-configured datasets only. Per-dataset cap for multi-dataset representation.
+    When exclude_datasets is set, return only tables from other datasets (for retry/fallback); cache is skipped."""
     from ..clients.bigquery import list_tables_for_discovery
 
     limit = min(limit or get_discover_tables_limit(), 50)
+    max_per_ds = get_max_tables_per_dataset()
     cache_key = f"{organization_id}:{intent}" if (organization_id or "").strip() else intent
-    cached = schema_cache_get(cache_key)
-    if cached is not None:
-        return cached[:limit]
+    if not exclude_datasets:
+        cached = schema_cache_get(cache_key)
+        if cached is not None:
+            return cached[:limit]
     raw = list_tables_for_discovery(organization_id=organization_id)
+    if exclude_datasets:
+        raw = [t for t in raw if (t.get("dataset") or "").strip() not in exclude_datasets]
+    if not raw:
+        return []
     ranked = _rank_tables_by_intent(raw, intent, organization_id=organization_id)
+    capped = _apply_per_dataset_cap(ranked, limit, max_per_ds)
     result = []
-    for t in ranked[:limit]:
+    for t in capped:
         columns = []
         for c in (t.get("columns") or []):
             if not c.get("name"):
@@ -118,7 +143,8 @@ def discover_tables(intent: str, limit: int = 20, organization_id: Optional[str]
             "last_updated": t.get("last_updated"),
             "sample_row": {},
         })
-    schema_cache_set(cache_key, result)
+    if not exclude_datasets:
+        schema_cache_set(cache_key, result)
     return result
 
 
@@ -128,9 +154,9 @@ def run_bigquery_sql(
     client_id: int,
     dry_run: bool = False,
     max_rows: int = 500,
-    timeout_sec: float = 20.0,
+    timeout_sec: float = 45.0,
 ) -> dict:
-    """Execute read-only BigQuery SQL. Returns rows, schema, row_count, stats, error."""
+    """Execute read-only BigQuery SQL. Returns rows, schema, row_count, stats, error. Default 45s for high-latency BQ."""
     from ..clients.bigquery import run_bigquery_sql_readonly
 
     out = run_bigquery_sql_readonly(

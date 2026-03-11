@@ -1,5 +1,5 @@
 """
-Copilot synthesis: ONLY from analytics_insights and supporting_metrics_snapshot (marts layer).
+Copilot synthesis: ONLY from analytics_insights and supporting_metrics_snapshot (grounded layer).
 No decision store; no raw analytics tables. Include explanation, business reasoning, confidence, data provenance.
 Reject hallucinated responses.
 """
@@ -39,7 +39,7 @@ def get_llm_client() -> Callable[[str], str]:
 
 PROMPT_TEMPLATE = """You are a senior growth analyst. Use ONLY the following grounded inputs. Do NOT invent metrics or query raw analytics.
 
-## Current insight (from analytics_insights / marts)
+## Current insight (from analytics_insights)
 {insight_json}
 
 ## Supporting metrics snapshot (pre-aggregated)
@@ -106,7 +106,7 @@ def build_prompt_grounded(
     *,
     recent_insights: Optional[list[dict]] = None,
 ) -> str:
-    """Build prompt from insight and supporting_metrics_snapshot only (marts layer)."""
+    """Build prompt from insight and supporting_metrics_snapshot only."""
     context_section = _build_copilot_context_section(recent_insights)
     return PROMPT_TEMPLATE.format(
         insight_json=_serialize_insight(insight),
@@ -182,7 +182,7 @@ def synthesize(
     llm_client: Optional[Callable[[str], str]] = None,
 ) -> dict:
     """
-    Load insight ONLY from analytics_insights and supporting_metrics_snapshot (marts layer).
+    Load insight ONLY from analytics_insights and supporting_metrics_snapshot.
     Build grounded prompt; return structured output with provenance. No raw table access.
     """
     if not get("copilot_grounding_only", True):

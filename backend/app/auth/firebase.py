@@ -10,8 +10,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-FIREBASE_VERIFY_TIMEOUT_SEC = 8
-_verify_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="firebase_verify")
+FIREBASE_VERIFY_TIMEOUT_SEC = 50
+# Single worker so prefetch and all verifications run in the same thread and share the auth library's HTTP cache.
+_verify_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="firebase_verify")
 
 _firebase_app = None
 
@@ -47,6 +48,38 @@ def init_firebase() -> None:
     except Exception as e:
         logger.warning("Firebase Admin init skipped or failed: %s", e)
         _firebase_app = False  # mark as attempted
+
+
+# Dummy JWT (valid structure, invalid sig) used to trigger SDK to fetch and cache public keys at startup.
+_PREWARM_TOKEN = (
+    "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InByZXdhcm0ifQ."
+    "eyJzdWIiOiJwcmV3YXJtIn0.x"
+)
+
+PREFETCH_TIMEOUT_SEC = 35
+
+
+def prefetch_firebase_public_keys() -> None:
+    """
+    Pre-fetch Firebase Auth public keys so the first real verify_id_token does not block on a slow
+    HTTPS request to Google (which can take 20+ seconds and cause request timeouts).
+    Call once after init_firebase() during app startup.
+    """
+    if not is_initialized():
+        return
+    try:
+        future = _verify_executor.submit(_verify_id_token_impl, _PREWARM_TOKEN)
+        future.result(timeout=PREFETCH_TIMEOUT_SEC)
+    except FuturesTimeoutError:
+        logger.warning(
+            "Firebase public key prefetch timed out after %ss; first token verification may be slow.",
+            PREFETCH_TIMEOUT_SEC,
+        )
+    except Exception:
+        # Expected: verification fails (invalid token). Keys are still cached.
+        logger.debug("Firebase public key prefetch completed (verification failed as expected)")
+    else:
+        logger.debug("Firebase public key prefetch completed")
 
 
 def is_initialized() -> bool:

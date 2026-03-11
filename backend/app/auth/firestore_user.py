@@ -12,11 +12,11 @@ from typing import Any, List, Optional
 logger = logging.getLogger(__name__)
 
 # Timeout for Firestore reads so auth does not hang (e.g. slow network).
-FIRESTORE_READ_TIMEOUT_SEC = 8
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="firestore")
+FIRESTORE_READ_TIMEOUT_SEC = 45
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="firestore")
 
-# Optional dataset type for resolving which BQ dataset to use (marts, marts_ads, analytics, ga4, ads)
-DATASET_TYPES = ("marts", "marts_ads", "analytics", "ga4", "ads")
+# Optional dataset type for resolving which BQ dataset to use (ga4, google_ads, pinterest, meta_ads, etc.)
+DATASET_TYPES = ("marts", "marts_ads", "analytics", "ga4", "ads", "google_ads", "pinterest", "meta_ads")
 
 
 def _get_firestore():
@@ -70,6 +70,30 @@ def _get_organization_impl(organization_id: str) -> Optional[dict[str, Any]]:
     return None
 
 
+# Prewarm: run one Firestore read at startup so the first request doesn't wait on cold connection.
+PREFETCH_FIRESTORE_TIMEOUT_SEC = 60
+
+
+def prefetch_firestore_connection() -> None:
+    """
+    Perform one Firestore read at startup so the first real request doesn't block on a slow
+    connection to Firestore (which can take 20+ seconds and cause auth timeouts).
+    Call once after init_firebase() during app startup.
+    """
+    try:
+        future = _executor.submit(_get_organization_impl, "org_test")
+        future.result(timeout=PREFETCH_FIRESTORE_TIMEOUT_SEC)
+    except FuturesTimeoutError:
+        logger.warning(
+            "Firestore prefetch timed out after %ss; first Firestore read may be slow.",
+            PREFETCH_FIRESTORE_TIMEOUT_SEC,
+        )
+    except Exception:
+        pass  # org_test may not exist in all envs; we only care about warming the connection
+    else:
+        logger.debug("Firestore prefetch completed")
+
+
 def get_organization(organization_id: str) -> Optional[dict[str, Any]]:
     """
     Read organizations/{organization_id} from Firestore. Uses timeout so auth does not hang.
@@ -90,7 +114,7 @@ def get_organization(organization_id: str) -> Optional[dict[str, Any]]:
 def parse_org_projects(org_doc: Optional[dict[str, Any]]) -> List[dict[str, Any]]:
     """
     Return Option B "projects" array from org doc, or empty list.
-    Each project: { "bq_project": str, "project_type"?: "organization"|"individual", "datasets": [...] }.
+    Each project: { "bq_project": str, "datasets": [...] }. All projects treated the same (no project_type).
     """
     if not org_doc or not isinstance(org_doc.get("projects"), list):
         return []
@@ -107,26 +131,22 @@ def parse_org_projects(org_doc: Optional[dict[str, Any]]) -> List[dict[str, Any]
                     "type": d.get("type") if d.get("type") in DATASET_TYPES else None,
                 })
         if datasets:
-            entry: dict[str, Any] = {"bq_project": str(p["bq_project"]), "datasets": datasets}
-            if p.get("project_type") in ("organization", "individual"):
-                entry["project_type"] = p["project_type"]
-            out.append(entry)
+            out.append({"bq_project": str(p["bq_project"]), "datasets": datasets})
     return out
 
 
 def get_org_projects_flat(org_doc: Optional[dict[str, Any]]) -> List[dict[str, Any]]:
     """
     Flatten Option B projects into a list of dataset configs with client_id (1-based index).
-    Each item: { client_id, bq_project, bq_dataset, bq_location, description, type?, project_type? }.
-    Used by /api/v1/me and by BQ resolution. If org has no "projects", returns empty list.
+    Each item: { client_id, bq_project, bq_dataset, bq_location, description, type? }.
+    All projects treated the same. Used by /api/v1/me and by BQ resolution.
     """
     projects = parse_org_projects(org_doc)
     if not projects:
         return []
     flat = []
-    for idx, proj in enumerate(projects):
+    for proj in projects:
         bq_project = proj.get("bq_project") or ""
-        project_type = proj.get("project_type") if proj.get("project_type") in ("organization", "individual") else None
         for ds in proj.get("datasets") or []:
             client_id = len(flat) + 1
             bq_dataset = ds.get("bq_dataset") or ""
@@ -135,17 +155,14 @@ def get_org_projects_flat(org_doc: Optional[dict[str, Any]]) -> List[dict[str, A
             description = bq_dataset or f"Dataset {client_id}"
             if bq_project:
                 description = f"{bq_dataset} ({bq_project})"
-            item: dict[str, Any] = {
+            flat.append({
                 "client_id": client_id,
                 "bq_project": bq_project,
                 "bq_dataset": bq_dataset,
                 "bq_location": bq_location,
                 "description": description,
                 "type": ds_type,
-            }
-            if project_type:
-                item["project_type"] = project_type
-            flat.append(item)
+            })
     return flat
 
 
@@ -167,6 +184,41 @@ def get_bq_config_for_client(organization_id: str, client_id: Optional[int]) -> 
                 "type": item.get("type"),
             }
     return None
+
+
+def get_org_all_dataset_names(organization_id: str) -> List[str]:
+    """
+    Return all BigQuery dataset names configured for this organization (from all projects).
+    Used by Copilot to discover tables from every dataset the org has (Google Ads, GA4, Meta, Pinterest, etc.).
+    """
+    configs = get_org_all_dataset_configs(organization_id)
+    seen: set[str] = set()
+    out: List[str] = []
+    for c in configs:
+        ds = (c.get("bq_dataset") or "").strip()
+        if ds and ds not in seen:
+            seen.add(ds)
+            out.append(ds)
+    return out
+
+
+def get_org_all_dataset_configs(organization_id: str) -> List[dict[str, Any]]:
+    """
+    Return all (project, dataset, location) configs for this organization.
+    Each item: { "bq_project", "bq_dataset", "bq_location" }.
+    Used by Copilot to discover tables from every dataset in every project (Google Ads, GA4, Meta, Pinterest, etc.).
+    """
+    org_doc = get_organization(organization_id)
+    flat = get_org_projects_flat(org_doc)
+    out: List[dict[str, Any]] = []
+    for item in flat:
+        proj = (item.get("bq_project") or "").strip()
+        ds = (item.get("bq_dataset") or "").strip()
+        if not proj or not ds:
+            continue
+        loc = (item.get("bq_location") or "").strip() or "europe-north2"
+        out.append({"bq_project": proj, "bq_dataset": ds, "bq_location": loc})
+    return out
 
 
 def get_org_bq_context(organization_id: str) -> Optional[dict[str, Any]]:
@@ -213,7 +265,7 @@ def get_org_bq_context(organization_id: str) -> Optional[dict[str, Any]]:
             ctx["ga4_dataset"] = ds
             if proj:
                 ctx["bq_source_project"] = proj
-        elif dtype == "ads" and not ctx["ads_dataset"]:
+        elif dtype in ("ads", "google_ads") and not ctx["ads_dataset"]:
             ctx["ads_dataset"] = ds
             if proj:
                 ctx["bq_source_project"] = ctx["bq_source_project"] or proj

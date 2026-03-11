@@ -28,6 +28,14 @@ def get_discover_tables_limit() -> int:
         return 20
 
 
+def get_max_tables_per_dataset() -> int:
+    """Max tables to include per dataset when building candidates (default 8). Ensures multi-dataset representation."""
+    try:
+        return max(1, min(int(os.environ.get("COPILOT_MAX_TABLES_PER_DATASET", "8")), 20))
+    except (TypeError, ValueError):
+        return 8
+
+
 PLANNER_SETTINGS = {
     "max_sql_templates_per_plan": 5,
     "intent_max_tokens": 100,

@@ -48,7 +48,10 @@ from .auth import (
     get_role_from_token as auth_get_role,
     get_user_id,
     init_firebase,
+    is_dev_key_allowed,
     parse_org_projects,
+    prefetch_firebase_public_keys,
+    prefetch_firestore_connection,
 )
 from .config_loader import get
 from .copilot_synthesizer import (
@@ -85,6 +88,8 @@ async def lifespan(app: FastAPI):
     # FIREBASE_PROJECT_ID must be set in production via env; no hardcoded fallback
     try:
         init_firebase()
+        prefetch_firebase_public_keys()
+        prefetch_firestore_connection()
     except Exception as e:
         logger.warning("Firebase init: %s", e)
     # Eagerly resolve session store so Firestore vs in-memory is fixed at startup
@@ -199,17 +204,17 @@ def get_role_from_token(request: Request) -> str:
     return auth_get_role(request, get_api_key)
 
 
-# Dev key only when API_KEY is not set (local dev). Production must set API_KEY; dev key is then rejected.
+# Dev key only when ENV is not production (see is_dev_key_allowed). Production must set API_KEY.
 DEV_API_KEY = "dev-local-secret"
 
 
 def _has_any_auth(request: Request) -> bool:
-    """True if request has valid API key or Bearer token. Prefer X-API-Key so local dev skips Firebase/Firestore."""
+    """True if request has valid API key or Bearer token. In production, dev-local-secret is rejected."""
     api_key = get_api_key()
     req_key = (request.headers.get("X-API-Key") or "").strip().replace("\r", "")
     if api_key and req_key and (api_key.strip().replace("\r", "") == req_key):
         return True
-    if not api_key and req_key == DEV_API_KEY:
+    if req_key == DEV_API_KEY and is_dev_key_allowed(request):
         return True
     if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
         return True
@@ -681,24 +686,95 @@ def copilot_refresh_schema(
     request: Request,
     _role: str = Depends(require_role("admin", "analyst", "viewer")),
 ):
-    """Refresh and save the current user's org dataset schema (tables + columns) to Firestore. Valid for 24h. Call after login so Copilot can use cached schema."""
+    """On init/login: if schema cache is missing or older than 10h, run full refresh (discover all datasets + LLM summary) and save. If cache exists and is under 10h old, skip refresh. Call after login so Copilot can answer questions faster."""
     org = get_organization_id(request)
     uid = get_user_id(request)
     from .auth.firestore_user import get_org_bq_context
+    from .copilot.schema_cache_firestore import (
+        get_schema_cache_updated_at,
+        REFRESH_IF_OLDER_THAN_SECONDS,
+        set_cached_schema,
+    )
     ctx = get_org_bq_context(org)
     if not ctx or not ctx.get("bq_project"):
         return JSONResponse(
             status_code=400,
             content={"error": "Datasets are not configured for your organization. Configure BigQuery data sources in organization settings."},
         )
+    # If cache exists and is fresh (< 10h), skip heavy refresh
+    updated_at = get_schema_cache_updated_at(org)
+    now = time.time()
+    if updated_at is not None and (now - updated_at) < REFRESH_IF_OLDER_THAN_SECONDS:
+        logger.info(
+            "Copilot refresh-schema skipped (cache fresh) | org_id=%s user_id=%s age_hours=%.1f",
+            org, uid or "(none)", (now - updated_at) / 3600,
+        )
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "cache_fresh",
+            "updated_at": updated_at,
+            "message": "Schema cache is under 10 hours old; no refresh needed.",
+        }
+    # No cache or older than 10h: run full refresh
     from .clients.bigquery import list_tables_for_discovery
-    from .copilot.schema_cache_firestore import set_cached_schema
+    from .copilot.schema_summary import summarize_schema_with_llm
     tables = list_tables_for_discovery(organization_id=org)
     if not tables:
         return JSONResponse(status_code=200, content={"ok": True, "tables_count": 0, "message": "No tables found in configured datasets."})
-    written = set_cached_schema(org, ctx["bq_project"], tables)
-    logger.info("Copilot refresh-schema | org_id=%s user_id=%s tables=%d written=%s", org, uid or "(none)", len(tables), written)
-    return {"ok": True, "tables_count": len(tables), "updated_at": time.time() if written else None}
+    schema_summary = summarize_schema_with_llm(org, tables)
+    written = set_cached_schema(org, ctx["bq_project"], tables, schema_summary=schema_summary)
+    logger.info(
+        "Copilot refresh-schema | org_id=%s user_id=%s tables=%d schema_summary=%s written=%s",
+        org, uid or "(none)", len(tables), bool(schema_summary), written,
+    )
+    return {
+        "ok": True,
+        "tables_count": len(tables),
+        "schema_summary_computed": schema_summary is not None,
+        "updated_at": time.time() if written else None,
+    }
+
+
+@app.get("/api/v1/copilot/datasets")
+def copilot_datasets(
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+    org: str = Depends(require_organization),
+    include_tables: bool = Query(False, description="Run BQ discovery and return table list (slower)"),
+):
+    """
+    Return which datasets (and optionally tables) the Copilot will use for this organization.
+    Uses Firestore org config only. Use ?include_tables=true to run BQ discovery and return table list (slower).
+    """
+    from .auth.firestore_user import get_org_bq_context, get_org_all_dataset_configs
+    ctx = get_org_bq_context(org)
+    if not ctx or not ctx.get("bq_project"):
+        return JSONResponse(
+            status_code=200,
+            content={
+                "organization_id": org,
+                "datasets": [],
+                "tables_count": 0,
+                "tables": [],
+                "message": "Datasets are not configured for this organization.",
+            },
+        )
+    configs = get_org_all_dataset_configs(org)
+    datasets = [
+        {"bq_project": c.get("bq_project"), "bq_dataset": c.get("bq_dataset"), "bq_location": c.get("bq_location") or "europe-north2"}
+        for c in configs
+    ]
+    out = {"organization_id": org, "datasets": datasets, "tables_count": 0, "tables": []}
+    if include_tables:
+        from .clients.bigquery import list_tables_for_discovery
+        tables = list_tables_for_discovery(organization_id=org)
+        out["tables_count"] = len(tables)
+        out["tables"] = [
+            {"project": t.get("project"), "dataset": t.get("dataset"), "table_name": t.get("table_name"), "column_count": len(t.get("columns") or [])}
+            for t in tables
+        ]
+    return out
 
 
 @app.get("/api/v1/copilot/store-info")

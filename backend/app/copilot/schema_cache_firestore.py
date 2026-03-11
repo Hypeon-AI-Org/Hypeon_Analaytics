@@ -12,7 +12,8 @@ from typing import Any, List, Optional
 logger = logging.getLogger(__name__)
 
 COLLECTION = "copilot_schema_cache"
-TTL_SECONDS = 24 * 3600  # 24 hours
+TTL_SECONDS = 24 * 3600  # 24 hours — cache considered valid for Copilot use
+REFRESH_IF_OLDER_THAN_SECONDS = 10 * 3600  # 10 hours — re-run discovery + LLM summary when initializing if older
 
 
 def _get_firestore():
@@ -23,10 +24,34 @@ def _get_firestore():
         return None
 
 
+def get_schema_cache_updated_at(organization_id: str) -> Optional[float]:
+    """
+    Return the updated_at timestamp of the schema cache doc if it exists, regardless of TTL.
+    Used to decide whether to run a full refresh on init (e.g. if older than 10h or missing).
+    """
+    if not (organization_id or "").strip():
+        return None
+    db = _get_firestore()
+    if not db:
+        return None
+    try:
+        doc = db.collection(COLLECTION).document(organization_id.strip()).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        updated_at = data.get("updated_at")
+        if updated_at is None:
+            return None
+        return float(updated_at)
+    except Exception as e:
+        logger.debug("get_schema_cache_updated_at failed: %s", e)
+        return None
+
+
 def get_cached_schema(organization_id: str) -> Optional[dict[str, Any]]:
     """
     Return cached schema for org if present and updated_at within 24h.
-    Returns { "updated_at": float, "bq_project": str, "tables": [ { project, dataset, table_name, columns } ] } or None.
+    Returns { "updated_at": float, "bq_project": str, "tables": [...], "schema_summary"?: str } or None.
     """
     if not (organization_id or "").strip():
         return None
@@ -44,23 +69,39 @@ def get_cached_schema(organization_id: str) -> Optional[dict[str, Any]]:
         tables = data.get("tables")
         if not isinstance(tables, list):
             return None
-        return {
+        out = {
             "updated_at": float(updated_at),
             "bq_project": data.get("bq_project") or "",
             "tables": tables,
         }
+        if data.get("schema_summary") and isinstance(data["schema_summary"], str):
+            out["schema_summary"] = data["schema_summary"]
+        return out
     except Exception as e:
         logger.debug("get_cached_schema failed: %s", e)
         return None
+
+
+def get_schema_summary(organization_id: str) -> Optional[str]:
+    """
+    Return the LLM-generated schema summary for this org if present and cache still valid.
+    Used by Copilot to answer questions faster using a short description of datasets/tables/columns.
+    """
+    cached = get_cached_schema(organization_id)
+    if not cached:
+        return None
+    return cached.get("schema_summary") if isinstance(cached.get("schema_summary"), str) else None
 
 
 def set_cached_schema(
     organization_id: str,
     bq_project: str,
     tables: List[dict[str, Any]],
+    schema_summary: Optional[str] = None,
 ) -> bool:
     """
     Write schema cache for org. tables: list of { project, dataset, table_name, columns }.
+    If schema_summary is provided (LLM-generated description of datasets/tables), it is stored for Copilot to use.
     Returns True if written.
     """
     if not (organization_id or "").strip():
@@ -84,12 +125,18 @@ def set_cached_schema(
                 ][:100],
             })
         doc_ref = db.collection(COLLECTION).document(organization_id.strip())
-        doc_ref.set({
+        payload = {
             "updated_at": time.time(),
             "bq_project": (bq_project or "").strip(),
             "tables": safe_tables,
-        })
-        logger.info("Copilot schema cache written | org_id=%s tables=%d", organization_id, len(safe_tables))
+        }
+        if schema_summary is not None and isinstance(schema_summary, str) and schema_summary.strip():
+            payload["schema_summary"] = schema_summary.strip()[:50000]
+        doc_ref.set(payload)
+        logger.info(
+            "Copilot schema cache written | org_id=%s tables=%d schema_summary=%s",
+            organization_id, len(safe_tables), bool(schema_summary),
+        )
         return True
     except Exception as e:
         logger.warning("set_cached_schema failed: %s", e)

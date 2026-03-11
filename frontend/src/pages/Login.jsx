@@ -45,10 +45,16 @@ export default function Login() {
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className={AUTH_CARD_CLASS}>
           <h1 className="text-xl font-bold text-slate-800 mb-2">Sign in</h1>
-          <p className="text-slate-600 text-sm">
-            Firebase is not configured. Add VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, etc. to your .env to enable login.
+          <p className="text-slate-600 text-sm mb-2">
+            Firebase is not configured. Add your Web app config to the <strong>repo root .env</strong> to enable login.
           </p>
-          <p className="text-slate-500 text-xs mt-4">
+          <ol className="text-slate-600 text-sm list-decimal list-inside space-y-1 mb-4">
+            <li>Open <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 underline">Firebase Console</a> → your project → Project settings (gear) → Your apps.</li>
+            <li>Create or select a Web app, then copy <code className="bg-slate-100 px-1 rounded">apiKey</code> and <code className="bg-slate-100 px-1 rounded">appId</code> from the config object.</li>
+            <li>In the repo root <code className="bg-slate-100 px-1 rounded">.env</code>, set <code className="bg-slate-100 px-1 rounded">VITE_FIREBASE_API_KEY</code> and <code className="bg-slate-100 px-1 rounded">VITE_FIREBASE_APP_ID</code> to those values.</li>
+            <li>Restart the frontend dev server (<code className="bg-slate-100 px-1 rounded">npm run dev</code>).</li>
+          </ol>
+          <p className="text-slate-500 text-xs">
             You can still use the app with header-based auth (X-Organization-Id, X-API-Key) if the backend allows it.
           </p>
         </div>

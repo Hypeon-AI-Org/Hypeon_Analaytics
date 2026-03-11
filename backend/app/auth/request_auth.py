@@ -4,6 +4,7 @@ Require auth (Bearer or API key) for all protected routes including local.
 """
 from __future__ import annotations
 
+import os
 from typing import Optional, Tuple
 
 from starlette.requests import Request
@@ -17,18 +18,34 @@ def _get_api_key():
     return get_api_key()
 
 
+def _is_production() -> bool:
+    """True when ENV is production or prod (deploy-ready: reject dev key)."""
+    env = (os.environ.get("ENV") or "").strip().lower()
+    return env in ("production", "prod")
+
+
 def _is_localhost_dev_key(request: Request) -> bool:
-    """True when X-API-Key=dev-local-secret (local dev; production should set API_KEY to a secret)."""
+    """True when X-API-Key=dev-local-secret (local dev only)."""
     req_key = (request.headers.get("X-API-Key") or "").strip()
     return req_key == "dev-local-secret"
+
+
+def _is_dev_key_allowed(request: Request) -> bool:
+    """True when request uses dev-local-secret and we are not in production."""
+    return _is_localhost_dev_key(request) and not _is_production()
+
+
+def is_dev_key_allowed(request: Request) -> bool:
+    """Public: True when X-API-Key is dev-local-secret and ENV is not production (for _has_any_auth)."""
+    return _is_dev_key_allowed(request)
 
 
 def require_any_auth(request: Request) -> None:
     """
     Raise 401 if request has no valid auth (X-API-Key or Bearer token).
-    Prefer X-API-Key when both are present so local dev avoids Firebase/Firestore.
+    In production, dev-local-secret is rejected; set API_KEY and use it or Bearer.
     """
-    if _is_localhost_dev_key(request):
+    if _is_dev_key_allowed(request):
         return
     api_key = _get_api_key()
     req_key = (request.headers.get("X-API-Key") or "").strip()
@@ -88,7 +105,7 @@ def get_organization_id(request: Request) -> str:
         _, user = _get_firebase_context(request)
         if user and isinstance(user.get("organization_id"), str) and user["organization_id"].strip():
             return user["organization_id"].strip()
-    if _is_localhost_dev_key(request):
+    if _is_dev_key_allowed(request):
         return (request.headers.get("X-Organization-Id") or request.headers.get("X-Org-Id") or "").strip()
     api_key = _get_api_key()
     req_key = (request.headers.get("X-API-Key") or "").strip()
@@ -106,7 +123,7 @@ def get_user_id(request: Request) -> Optional[str]:
     if auth.startswith("Bearer "):
         uid, _ = _get_firebase_context(request)
         return uid
-    if _is_localhost_dev_key(request):
+    if _is_dev_key_allowed(request):
         return None
     api_key = _get_api_key()
     req_key = (request.headers.get("X-API-Key") or "").strip()
@@ -129,7 +146,7 @@ def get_role_from_token(request: Request, get_api_key_fn=None) -> str:
                 return role
             return "analyst"
         return "analyst"
-    if _is_localhost_dev_key(request):
+    if _is_dev_key_allowed(request):
         return "admin"
     if get_api_key_fn:
         api_key = get_api_key_fn()

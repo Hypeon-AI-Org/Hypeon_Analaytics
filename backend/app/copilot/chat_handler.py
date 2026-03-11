@@ -1,6 +1,6 @@
 """
-Copilot chat: discover tables (marts first, raw fallback) → LLM generates SQL from schema + guide → run → validate → format.
-Fully dynamic: no hardcoded SQL templates. Response: { answer, data, text, session_id }.
+Copilot chat: discover tables from org-configured datasets → LLM generates SQL from schema + guide → run → validate → format.
+Fully dynamic: no hardcoded datasets or SQL templates. Each org uses only their configured data. Response: { answer, data, text, session_id }.
 """
 from __future__ import annotations
 
@@ -9,53 +9,43 @@ import logging
 import re
 import time
 import uuid
-from typing import Any, Generator, List, Optional
+from typing import Any, Generator, List, Optional, Set
 
 from .defaults import get_max_retries
-from .tools import run_bigquery_sql, _serialize_rows
+from .schema_summary import MAX_SUMMARY_CHARS
+from .tools import discover_tables as tools_discover_tables, run_bigquery_sql, _serialize_rows
 from .validator import validate as validate_result
 from . import copilot_metrics
 
 logger = logging.getLogger(__name__)
 
-_SQL_GUIDE = """You are a BigQuery SQL expert for a read-only analytics warehouse. Your ONLY job is to output exactly one BigQuery SQL query that answers the user question.
+# Dataset type -> human-readable label (used when injecting dataset context into prompts; no hardcoded dataset names).
+_DATASET_TYPE_LABELS = {
+    "google_ads": "Google Ads",
+    "ga4": "GA4",
+    "meta_ads": "Meta Ads",
+    "pinterest": "Pinterest",
+    "marts": "Marts",
+    "marts_ads": "Marts (Ads)",
+    "ads": "Ads",
+}
 
-## What TO do
-- Use ONLY the tables and columns listed in the schema below. Table names must be backtick-quoted: `project.dataset.table`.
-- Write a single SELECT statement (or WITH ... SELECT). No semicolon at the end.
-- Always add a LIMIT (e.g. LIMIT 500) to avoid huge result sets.
-- Prefer columns that match the question (e.g. revenue → value/item_revenue/revenue; product → item_id/product_id/sku; channel → channel/utm_source).
-- Date filters: If the schema shows event_date or event_time with type STRING, the column is usually YYYYMMDD format. Use PARSE_DATE('%Y%m%d', event_date) for date comparison, or filter with: event_date >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)). Do NOT use CAST(event_date AS DATE) or compare a STRING column directly to a DATE. If the column type is DATE or TIMESTAMP, you may use event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY).
-- If a table has client_id, filter by client_id = {client_id} when the question is about this client.
-- For "days from first visit to first purchase" or "time lag" by channel: get first visit date (e.g. MIN(event_date) WHERE event_name = 'session_start') and first purchase date (e.g. MIN(event_date) WHERE event_name = 'purchase') per user; JOIN on user_pseudo_id only (do not require same utm_source on both); then attribute by the utm_source of the first visit. Use DATE_DIFF for days between dates.
-- For ROAS or revenue vs cost: use tables from the schema below that contain revenue and cost/spend; join them by channel or campaign where columns exist; use COALESCE for missing keys. If no join key, use utm_source or campaign_id where present.
-- Funnel (drop-off, checkout): when the schema has event_name, use event_name IN ('view_item','add_to_cart','begin_checkout','purchase','session_start'). Break down by utm_source or device if those columns exist.
-- Landing page / entry page: when the schema has page_location and session/user identifiers, use the first event per session (e.g. ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp)); event_name can be session_start or page_view if present.
+_SQL_GUIDE = """You are a BigQuery SQL expert for a read-only analytics warehouse. Output exactly one BigQuery SELECT query that answers the user question. No explanation—only the query.
 
-## What NOT to do
-- Do NOT use INSERT, UPDATE, DELETE, MERGE, CREATE, DROP, ALTER, TRUNCATE, GRANT, REVOKE, EXPORT. Only SELECT is allowed.
-- Do NOT reference tables or columns that are not in the schema below.
-- Do NOT use CAST(string_date_column AS DATE) when the column holds YYYYMMDD strings; use PARSE_DATE('%Y%m%d', column) or FORMAT_DATE for comparison instead.
-- Do NOT output explanation or markdown—only the raw SQL query. No ``` wrapper unless you put the SQL inside it; if you use a code block, use ```sql ... ``` so it can be extracted.
-- Do NOT run multiple statements.
+Rules:
+- Use ONLY tables and columns from the schema below. Quote table names as `project.dataset.table`. You may JOIN or UNION across tables when the question requires it.
+- Output a single SELECT (or WITH ... SELECT). No semicolon. Add LIMIT (e.g. 500) to cap result size.
+- Match the user's intent: use columns that fit the question (revenue, product, channel, campaign, date, etc.). If a "Dataset labels" or schema summary is provided, use it to pick the right source (e.g. Google Ads, GA4, Meta Ads) for the question.
+- Dates: For STRING columns in YYYYMMDD format use PARSE_DATE('%Y%m%d', col) or event_date >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)). For DATE/TIMESTAMP use standard comparisons. Do not CAST string dates to DATE.
+- If the schema includes client_id and the question is about this client, filter with client_id = {client_id}.
+- Read-only: only SELECT is allowed. No INSERT, UPDATE, DELETE, DDL, or multiple statements.
+- Do not reference tables or columns not listed. Do not output markdown or prose—only the SQL. Use ```sql ... ``` if you use a code block."""
 
-Output only the SQL query."""
+_FORMAT_SYSTEM = """You are a marketing analytics assistant. Turn the query result into a clear, readable answer. Be concise; do not invent data.
 
-_FORMAT_SYSTEM = """You are a marketing analytics assistant. Format the query result into a clear, readable answer.
-
-Tone and structure:
-- Prefer a simple, scannable answer first: 1–2 sentences or a short bullet list. Use clear language; avoid jargon unless the user's question uses it.
-- If the question needs more detail, or the result is large or multi-faceted, add sections (##) and small markdown tables. Be understandable; add detail only when a simple answer wouldn't be enough.
-- Do not invent data. Be concise.
-
-Formatting:
-- Use **##** for main sections (e.g. ## Summary, ## Key Metrics, ## By Source).
-- Use exactly one newline between table header, separator, and data rows. Example:
-  | Metric | Value |
-  |--------|-------|
-  | Sessions | 5,934 |
-- For large result sets: write a concise summary with 1–2 small tables (max 10–15 rows each). Add a brief note like "Full result has N rows; top rows above."
-- If the result has 0 rows: state simply that no data matches; suggest widening the time window or relaxing filters if relevant."""
+- Start with a short summary or bullets. Add sections (##) and small markdown tables when the result is large or multi-faceted.
+- Use proper markdown tables (header, separator, rows with one newline between). For big result sets, summarize and show 1–2 small tables (e.g. top 10–15 rows); note "Full result has N rows" if needed.
+- If there are 0 rows: say so simply and suggest widening filters or time range if relevant."""
 
 
 def _is_simple_greeting(msg: str) -> bool:
@@ -64,6 +54,18 @@ def _is_simple_greeting(msg: str) -> bool:
     lower = msg.strip().lower()
     greetings = ("hi", "hello", "hey", "howdy", "hi there", "hello there", "yo", "sup", "good morning", "good afternoon", "good evening")
     return lower in greetings or lower.rstrip("!?.") in greetings
+
+
+def _is_capability_question(msg: str) -> bool:
+    """Fast path: "what can you do", "help", "capabilities" — avoid planner/LLM."""
+    if not msg or len(msg) > 120:
+        return False
+    lower = msg.strip().lower().rstrip("?.!")
+    if lower in ("help", "what can you do", "what can you do for me", "capabilities", "what do you do"):
+        return True
+    if any(x in lower for x in ("what can you do", "what do you do", "how can you help", "what are you", "your capabilities")):
+        return True
+    return False
 
 
 def _allow_empty_for_question(message: str) -> bool:
@@ -82,10 +84,82 @@ def _allow_empty_for_question(message: str) -> bool:
     return any(p in lower for p in phrases)
 
 
+def _datasets_used_in_sql(sql: str) -> Set[str]:
+    """Extract dataset names from SQL (backtick-quoted or unquoted project.dataset.table). Returns set of dataset names."""
+    if not sql or not isinstance(sql, str):
+        return set()
+    quoted = re.findall(r"`([^`]+)`", sql)
+    used: Set[str] = set()
+    for name in quoted:
+        parts = name.split(".")
+        if len(parts) >= 2:
+            used.add(parts[1].strip().lower())
+    unquoted = re.findall(r"\b(\w+)\.(\w+)\.(\w+)\b", sql)
+    for _p, ds, _t in unquoted:
+        used.add(ds.strip().lower())
+    return used
+
+
+def _expand_candidates_with_other_datasets(
+    candidates: List[dict],
+    failed_sql: str,
+    intent: str,
+    organization_id: str,
+) -> List[dict]:
+    """On retry: add tables from datasets not used in the failed SQL. Merges without duplicating by full table name."""
+    used_ds = _datasets_used_in_sql(failed_sql)
+    if not used_ds:
+        return candidates
+    try:
+        extra = tools_discover_tables(
+            intent,
+            limit=15,
+            organization_id=organization_id or None,
+            exclude_datasets=used_ds,
+        )
+    except Exception as e:
+        logger.warning("Copilot expand_candidates (other datasets) failed: %s", e)
+        return candidates
+    if not extra:
+        return candidates
+    seen: Set[str] = set()
+    out: List[dict] = []
+    for c in candidates:
+        full = (c.get("table") or "").strip()
+        if full and full not in seen:
+            seen.add(full)
+            out.append(c)
+    project = None
+    try:
+        from ..clients.bigquery import _get_bq_context
+        ctx = _get_bq_context(organization_id) if organization_id else None
+        if ctx and ctx.get("bq_project"):
+            project = ctx["bq_project"]
+    except Exception:
+        pass
+    for e in extra:
+        proj = e.get("project") or project or ""
+        ds = e.get("dataset") or ""
+        tbl = e.get("table") or e.get("table_name") or ""
+        if not tbl:
+            continue
+        full = f"{proj}.{ds}.{tbl}".strip(".")
+        if full not in seen:
+            seen.add(full)
+            out.append({"table": full, "columns": e.get("columns") or []})
+    if len(out) > len(candidates):
+        logger.info("Copilot expanded candidates with other datasets | used=%s added=%d", used_ds, len(out) - len(candidates))
+    return out
+
+
+# Max candidate tables to include in schema block (more tables = better accuracy, slightly larger prompt)
+MAX_SCHEMA_TABLES = 20
+
+
 def _schema_block(candidates: List[dict]) -> str:
     """Build a single schema block for the prompt from candidate tables and columns."""
     lines = ["## Available schema (use only these tables and columns)\n"]
-    for c in candidates[:10]:
+    for c in candidates[:MAX_SCHEMA_TABLES]:
         full = c.get("table") or ""
         cols = c.get("columns") or []
         if not full:
@@ -109,6 +183,29 @@ def _schema_block(candidates: List[dict]) -> str:
 MAX_CHART_ROWS_STORED = 100
 
 
+def _get_dataset_labels_for_org(organization_id: str) -> str:
+    """Return a short line mapping dataset names to source labels (e.g. 146568 = Google Ads) from Firestore org config. Empty if not available."""
+    if not (organization_id or "").strip():
+        return ""
+    try:
+        from ..auth.firestore_user import get_organization, get_org_projects_flat
+        org_doc = get_organization(organization_id)
+        flat = get_org_projects_flat(org_doc) or []
+        if not flat:
+            return ""
+        parts = []
+        for item in flat:
+            ds = (item.get("bq_dataset") or "").strip()
+            t = item.get("type")
+            if not ds:
+                continue
+            label = _DATASET_TYPE_LABELS.get(t, t) if t else ds
+            parts.append(f"{ds} = {label}")
+        return ", ".join(parts) if parts else ""
+    except Exception:
+        return ""
+
+
 def _build_sql_prompt(
     question: str,
     candidates: List[dict],
@@ -116,11 +213,23 @@ def _build_sql_prompt(
     previous_sql: Optional[str] = None,
     previous_error: Optional[str] = None,
     conversation_context: Optional[str] = None,
+    schema_summary: Optional[str] = None,
+    organization_id: Optional[str] = None,
 ) -> tuple[str, str]:
-    """Return (system_prompt, user_message) for LLM SQL generation."""
+    """Return (system_prompt, user_message) for LLM SQL generation. schema_summary and dataset labels are optional context."""
     system = _SQL_GUIDE.format(client_id=client_id)
     schema = _schema_block(candidates)
-    user_parts = [schema]
+    user_parts = []
+    labels = _get_dataset_labels_for_org(organization_id or "")
+    if labels:
+        user_parts.append("## Dataset labels (use to match user question to the right source)\n")
+        user_parts.append(labels)
+        user_parts.append("")
+    if schema_summary and schema_summary.strip():
+        user_parts.append("## Your data (summary)\n")
+        user_parts.append(schema_summary.strip()[:MAX_SUMMARY_CHARS])
+        user_parts.append("")
+    user_parts.append(schema)
     if conversation_context and conversation_context.strip():
         user_parts.append("## Conversation so far")
         user_parts.append(conversation_context.strip())
@@ -194,11 +303,18 @@ def _llm_generate_sql(system: str, user_content: str) -> Optional[str]:
             raw = (out.get("text") or "").strip()
         except Exception as e:
             logger.warning("Gemini SQL generation failed: %s", e)
-    return _extract_sql_from_response(raw) if raw else None
+    extracted = _extract_sql_from_response(raw) if raw else None
+    if raw and not extracted:
+        logger.warning(
+            "Copilot LLM returned text but no SQL could be extracted (len=%s). Preview: %s",
+            len(raw),
+            (raw[:400] + "..." if len(raw) > 400 else raw),
+        )
+    return extracted
 
 
 def _llm_interpret_question(message: str) -> Optional[str]:
-    """Ask the LLM to describe what it is thinking: separate sections (what user wants, what to look for, approach). Used for the 'Understanding' thinking step."""
+    """Ask the LLM to describe what it is thinking. Used when streaming is not available."""
     if not (message or "").strip():
         return None
     try:
@@ -208,11 +324,7 @@ def _llm_interpret_question(message: str) -> Optional[str]:
         return None
     system = (
         "You are an analytics assistant. The user asked a question about their data. "
-        "Reply with your full 'thinking' in separate sections. Use exactly these section headers on their own line (bold with **):\n"
-        "**What you're asking:**\n"
-        "**What I'll look for:**\n"
-        "**Approach:**\n\n"
-        "Use markdown: **bold** for headers, blank lines between sections. Write as much as you need—no length limit. No preamble—only the sectioned thinking."
+        "Reply with your thinking: what they want, what data to use, and how you'd approach it. Use markdown if helpful. No preamble—only your reasoning."
     )
     user_content = f'User asked: "{message.strip()}"'
     msgs = [{"role": "user", "content": user_content}]
@@ -231,6 +343,57 @@ def _llm_interpret_question(message: str) -> Optional[str]:
     if not raw:
         return None
     return (raw or "").strip() or None
+
+
+def _stream_llm_thinking(
+    message: str,
+    candidates: List[dict],
+    organization_id: str,
+    schema_summary: Optional[str] = None,
+) -> Generator[str, None, None]:
+    """Stream the model's live reasoning about the question and which data to use. Yields text chunks. No fixed format."""
+    if not (message or "").strip():
+        return
+    labels = _get_dataset_labels_for_org(organization_id or "")
+    table_list = []
+    for c in (candidates or [])[:MAX_SCHEMA_TABLES]:
+        full = c.get("table") or ""
+        if full:
+            table_list.append(full)
+    context_parts = []
+    if labels:
+        context_parts.append(f"Dataset labels: {labels}.")
+    if table_list:
+        context_parts.append(f"Available tables ({len(table_list)}): " + ", ".join(table_list[:15]) + ("..." if len(table_list) > 15 else ""))
+    if schema_summary and schema_summary.strip():
+        context_parts.append("Summary: " + schema_summary.strip()[:1500])
+    context_str = " ".join(context_parts) if context_parts else "Schema and tables will be used for the query."
+    system = (
+        "You are an analytics assistant. Think step by step out loud: what the user is asking for, which data sources or tables are relevant, and how you would answer. "
+        "Be concise. Output only your reasoning; no SQL, no code blocks. This is for the user to see your thought process."
+    )
+    user_content = f"User question: {message.strip()}\n\nContext: {context_str}\n\nThink out loud:"
+    combined = f"{system}\n\n---\n\n{user_content}"
+    try:
+        from ..llm_claude import is_claude_configured, stream_claude
+        from ..llm_gemini import is_gemini_configured, stream_gemini
+    except Exception:
+        return
+    if is_claude_configured():
+        try:
+            for chunk in stream_claude(combined):
+                if chunk and isinstance(chunk, str):
+                    yield chunk
+            return
+        except Exception:
+            pass
+    if is_gemini_configured():
+        try:
+            for chunk in stream_gemini(combined):
+                if chunk and isinstance(chunk, str):
+                    yield chunk
+        except Exception:
+            pass
 
 
 def _format_answer(message: str, sql_used: str, rows: list, organization_id: str, session_id: str, from_raw: bool = False) -> str:
@@ -272,46 +435,6 @@ def _format_answer(message: str, sql_used: str, rows: list, organization_id: str
         except Exception:
             pass
     return _fallback_answer(rows, sql_used)
-
-
-def _try_raw_fallback(message: str, organization_id: str, client_id: int) -> Optional[tuple[list, str]]:
-    """When marts return 0 rows, try one query against raw GA4/Ads. Returns (rows, sql_used) or None."""
-    try:
-        from .knowledge_base import get_raw_schema_for_copilot
-        from ..clients.bigquery import run_readonly_query_raw
-    except Exception as e:
-        logger.warning("Raw fallback import failed: %s", e)
-        return None
-    raw_schema = get_raw_schema_for_copilot(organization_id)
-    if not raw_schema or "not available" in raw_schema.lower():
-        return None
-    system = (
-        "You are a BigQuery SQL expert. Output exactly one SELECT query using ONLY the raw tables and columns listed below. "
-        "Use backtick-quoted table names. Add LIMIT 500. For GA4 use event_date filter (e.g. event_date >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))). "
-        "No marts tables—only GA4 events_* or Ads tables from the schema below.\n\n"
-        + raw_schema[:8000]
-    )
-    user_content = f"User question: {message.strip()}\n\nOutput only the single BigQuery SELECT query:"
-    sql_used = _llm_generate_sql(system, user_content)
-    if not sql_used:
-        return None
-    try:
-        out = run_readonly_query_raw(
-            sql_used,
-            client_id=client_id,
-            organization_id=organization_id,
-            max_rows=500,
-            timeout_sec=25.0,
-        )
-    except Exception as e:
-        logger.warning("Raw fallback run failed: %s", e)
-        return None
-    if out.get("error"):
-        logger.info("Raw fallback query error: %s", out.get("error")[:200])
-        return None
-    rows = out.get("rows") or []
-    rows = _serialize_rows(rows)
-    return (rows, sql_used)
 
 
 def _fallback_answer(rows: list, sql_used: str) -> str:
@@ -420,6 +543,18 @@ def chat(
         store.append(organization_id, sid, "assistant", reply, meta=None, user_id=user_id)
         return {"answer": reply, "data": [], "text": reply, "session_id": sid}
 
+    if _is_capability_question(message):
+        reply = (
+            "I'm your analytics copilot. I can:\n\n"
+            "- **Answer questions** about your data in plain language (e.g. “What was revenue last month?”, “Top 10 products by sales”).\n"
+            "- **Run safe read-only queries** on your BigQuery warehouse (Google Ads, GA4, Meta Ads, Pinterest, etc.) and return tables or charts.\n"
+            "- **Compare periods**, break down by channel, campaign, or product, and summarize trends.\n\n"
+            "Describe what you want to analyze and I'll suggest the right tables and run the query. Ask anything about your connected datasets."
+        )
+        store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
+        store.append(organization_id, sid, "assistant", reply, meta=None, user_id=user_id)
+        return {"answer": reply, "data": [], "text": reply, "session_id": sid}
+
     # When org is set, require Firestore BQ config; no env fallback.
     o = (organization_id or "").strip()
     if o:
@@ -438,10 +573,14 @@ def chat(
         bq_ctx = get_org_bq_context(organization_id) if o else None
         datasets_info = []
         if bq_ctx:
-            if bq_ctx.get("marts_dataset"):
-                datasets_info.append(bq_ctx["marts_dataset"])
-            if bq_ctx.get("marts_ads_dataset"):
-                datasets_info.append(bq_ctx["marts_ads_dataset"])
+            try:
+                from ..auth.firestore_user import get_org_all_dataset_configs
+                for cfg in get_org_all_dataset_configs(organization_id) or []:
+                    ds = (cfg.get("bq_dataset") or "").strip()
+                    if ds and ds not in datasets_info:
+                        datasets_info.append(ds)
+            except Exception:
+                pass
         logger.info(
             "Copilot chat | org_id=%s user_id=%s session_id=%s datasets=%s",
             organization_id, user_id or "(none)", sid[:16] if sid else "", datasets_info or "(env)",
@@ -472,6 +611,12 @@ def chat(
     copilot_metrics.increment("copilot.planner_attempts_total")
     plan = planner_analyze(message, context=session_context_messages or None, client_id=cid, organization_id=organization_id)
     candidates = list(plan.get("candidates") or [])
+    schema_summary: Optional[str] = None
+    try:
+        from .schema_cache_firestore import get_schema_summary
+        schema_summary = get_schema_summary(organization_id)
+    except Exception:
+        pass
 
     if not candidates:
         logger.info("Copilot no candidates | intent=%s", plan.get("intent", ""))
@@ -493,15 +638,21 @@ def chat(
 
     while attempt < max_retries:
         attempt += 1
+        if attempt > 1 and previous_sql:
+            candidates = _expand_candidates_with_other_datasets(
+                candidates, previous_sql, plan.get("intent", ""), organization_id
+            )
         system, user_content = _build_sql_prompt(
             message, candidates, cid,
             previous_sql=previous_sql, previous_error=previous_error,
             conversation_context=conversation_context_str,
+            schema_summary=schema_summary,
+            organization_id=organization_id,
         )
         sql_used = _llm_generate_sql(system, user_content)
         if not sql_used:
             previous_error = "LLM did not return a valid SQL query."
-            logger.warning("Copilot LLM returned no SQL on attempt %s", attempt)
+            logger.warning("Copilot LLM returned no SQL on attempt %s (check for 'no SQL could be extracted' above)", attempt)
             continue
         tables_tried.append(sql_used[:500])
         try:
@@ -545,19 +696,6 @@ def chat(
         store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
         store.append(organization_id, sid, "assistant", final_text, meta=chart_meta, user_id=user_id)
         return {"answer": final_text, "data": rows, "text": final_text, "session_id": sid}
-
-    # Explicit raw fallback: try one query against GA4/Ads raw when marts returned no valid result
-    if tables_tried:
-        raw_result = _try_raw_fallback(message, organization_id, cid)
-        if raw_result is not None:
-            raw_rows, raw_sql = raw_result
-            logger.info("Copilot raw fallback success | row_count=%d", len(raw_rows))
-            final_text = _format_answer(message, raw_sql, raw_rows, organization_id, sid, from_raw=True)
-            raw_serialized = _serialize_data_for_sse(raw_rows)
-            raw_chart_meta = {"data": raw_serialized[:MAX_CHART_ROWS_STORED]} if raw_serialized else None
-            store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
-            store.append(organization_id, sid, "assistant", final_text, meta=raw_chart_meta, user_id=user_id)
-            return {"answer": final_text, "data": raw_rows, "text": final_text, "session_id": sid}
 
     copilot_metrics.increment("copilot.query_empty_results_total")
     # Show first query in full (up to 500 chars) so WHERE clause is visible for debugging
@@ -631,6 +769,19 @@ def chat_stream(
         yield {"phase": "done", "answer": reply, "data": [], "session_id": sid}
         return
 
+    if _is_capability_question(message):
+        reply = (
+            "I'm your analytics copilot. I can:\n\n"
+            "- **Answer questions** about your data in plain language (e.g. “What was revenue last month?”, “Top 10 products by sales”).\n"
+            "- **Run safe read-only queries** on your BigQuery warehouse (Google Ads, GA4, Meta Ads, Pinterest, etc.) and return tables or charts.\n"
+            "- **Compare periods**, break down by channel, campaign, or product, and summarize trends.\n\n"
+            "Describe what you want to analyze and I’ll suggest the right tables and run the query. Ask anything about your connected datasets."
+        )
+        store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
+        store.append(organization_id, sid, "assistant", reply, meta=None, user_id=user_id)
+        yield {"phase": "done", "answer": reply, "data": [], "session_id": sid}
+        return
+
     # When org is set, require Firestore BQ config; no env fallback.
     o = (organization_id or "").strip()
     if o:
@@ -650,6 +801,7 @@ def chat_stream(
         from .schema_cache_firestore import get_allowed_tables_set
         allowed = get_allowed_tables_set(organization_id or "")
         if not allowed:
+            logger.info("Copilot early exit: get_allowed_tables_set returned 0 tables for org=%s", organization_id or "(empty)")
             yield {"phase": "discovering", "message": "Checking schema…", "tables_count": 0, "detail": "Found 0 tables.", "detail_kind": "text"}
             final_text = (
                 "I couldn't find any tables in the warehouse for that question. "
@@ -681,19 +833,28 @@ def chat_stream(
             conversation_context_str = "\n".join(parts)
 
     try:
-        interpretation = _llm_interpret_question(message)
-        yield {"phase": "analyzing", "message": "Understanding your question…", "detail": interpretation, "detail_kind": "text"}
         max_retries = get_max_retries()
         copilot_metrics.increment("copilot.planner_attempts_total")
         plan = planner_analyze(message, context=session_context_messages or None, client_id=cid, organization_id=organization_id)
         candidates = list(plan.get("candidates") or [])
+        schema_summary_stream: Optional[str] = None
+        try:
+            from .schema_cache_firestore import get_schema_summary
+            schema_summary_stream = get_schema_summary(organization_id)
+        except Exception:
+            pass
 
         def _table_name(c: dict) -> str:
             full = c.get("table") or c.get("table_name") or ""
             return full.split(".")[-1] if full and "." in full else full
         tables_list = [_table_name(c) for c in candidates if _table_name(c)]
-        discovering_detail = f"Found {len(candidates)} tables: " + ", ".join(tables_list)
-        yield {"phase": "discovering", "message": "Finding relevant tables…", "tables_count": len(candidates), "detail": discovering_detail, "detail_kind": "text"}
+        labels_str = _get_dataset_labels_for_org(organization_id or "")
+        discovering_message = f"Using {len(candidates)} tables from your data sources"
+        discovering_detail = ", ".join(tables_list[:12]) + ("..." if len(tables_list) > 12 else "") if tables_list else "No tables"
+        if labels_str:
+            discovering_detail = f"Sources: {labels_str}. Tables: " + discovering_detail
+        logger.info("Copilot discovered %s candidate tables for org=%s | intent=%s", len(candidates), organization_id or "", plan.get("intent", ""))
+        yield {"phase": "discovering", "message": discovering_message, "tables_count": len(candidates), "detail": discovering_detail, "detail_kind": "text"}
         if not candidates:
             logger.info("Copilot no candidates | intent=%s", plan.get("intent", ""))
             copilot_metrics.increment("copilot.query_empty_results_total")
@@ -706,6 +867,12 @@ def chat_stream(
             yield {"phase": "done", "answer": final_text, "data": [], "session_id": sid}
             return
 
+        # Live thinking: stream the model's reasoning so the user sees what we're considering
+        yield {"phase": "thinking", "message": "Thinking…", "detail": "", "detail_kind": "text"}
+        for thinking_chunk in _stream_llm_thinking(message, candidates, organization_id, schema_summary_stream):
+            if thinking_chunk:
+                yield {"phase": "thinking_chunk", "chunk": thinking_chunk}
+
         valid_result = None
         sql_used = None
         tables_tried: list[str] = []
@@ -715,20 +882,28 @@ def chat_stream(
 
         while attempt < max_retries:
             attempt += 1
-            generating_detail = "Building a read-only SELECT from the schema (with date filters and grouping as needed) to answer your question."
-            yield {"phase": "generating_sql", "message": "Writing SQL query…", "detail": generating_detail, "detail_kind": "text"}
+            if attempt > 1 and previous_sql:
+                candidates = _expand_candidates_with_other_datasets(
+                    candidates, previous_sql, plan.get("intent", ""), organization_id
+                )
+                yield {"phase": "discovering", "message": "Trying other datasets…", "tables_count": len(candidates), "detail": f"Expanded to {len(candidates)} tables.", "detail_kind": "text"}
+            tables_preview = ", ".join((c.get("table") or "").split(".")[-1] for c in candidates[:5] if c.get("table")) + ("..." if len(candidates) > 5 else "")
+            generating_detail = f"Building a query from the schema to answer your question." + (f" Considering tables: {tables_preview}" if tables_preview else "")
+            yield {"phase": "generating_sql", "message": "Writing SQL…", "detail": generating_detail, "detail_kind": "text"}
             system, user_content = _build_sql_prompt(
                 message, candidates, cid,
                 previous_sql=previous_sql, previous_error=previous_error,
                 conversation_context=conversation_context_str,
+                schema_summary=schema_summary_stream,
+                organization_id=organization_id,
             )
             sql_used = _llm_generate_sql(system, user_content)
             if not sql_used:
                 previous_error = "LLM did not return a valid SQL query."
-                logger.warning("Copilot LLM returned no SQL on attempt %s", attempt)
+                logger.warning("Copilot LLM returned no SQL on attempt %s (check above for 'no SQL could be extracted' if LLM returned text)", attempt)
                 continue
             tables_tried.append(sql_used[:500])
-            yield {"phase": "running_query", "message": "Running query…", "sql_preview": (sql_used if sql_used else None), "detail_kind": "sql"}
+            yield {"phase": "running_query", "message": "Running query in BigQuery…", "sql_preview": (sql_used if sql_used else None), "detail_kind": "sql"}
             try:
                 out = run_bigquery_sql(sql_used, organization_id=organization_id, client_id=cid)
             except Exception as e:
@@ -755,7 +930,7 @@ def chat_stream(
 
         if valid_result is not None and sql_used:
             rows = valid_result.get("rows") or []
-            yield {"phase": "formatting", "message": "Formatting results…", "detail": "Summarizing the result and formatting it into a clear answer.", "detail_kind": "text"}
+            yield {"phase": "formatting", "message": "Formatting answer…", "detail": "Turning the result into a clear answer.", "detail_kind": "text"}
             accumulated: List[str] = []
             for chunk in _format_answer_stream(message, sql_used, rows, from_raw=False):
                 accumulated.append(chunk)
@@ -767,25 +942,6 @@ def chat_stream(
             store.append(organization_id, sid, "assistant", final_text, meta=chart_meta, user_id=user_id)
             yield {"phase": "done", "answer": final_text, "data": serialized_data, "session_id": sid}
             return
-
-        if tables_tried:
-            yield {"phase": "running_query", "message": "Trying raw data fallback…", "sql_preview": None, "detail_kind": "text"}
-            raw_result = _try_raw_fallback(message, organization_id, cid)
-            if raw_result is not None:
-                raw_rows, raw_sql = raw_result
-                logger.info("Copilot raw fallback success | row_count=%d", len(raw_rows))
-                yield {"phase": "formatting", "message": "Formatting results…", "detail": "Summarizing the raw data result and formatting it into a clear answer.", "detail_kind": "text"}
-                accumulated: List[str] = []
-                for chunk in _format_answer_stream(message, raw_sql, raw_rows, from_raw=True):
-                    accumulated.append(chunk)
-                    yield {"phase": "answer_chunk", "chunk": chunk}
-                final_text = "".join(accumulated)
-                raw_serialized = _serialize_data_for_sse(raw_rows)
-                raw_chart_meta = {"data": raw_serialized[:MAX_CHART_ROWS_STORED]} if raw_serialized else None
-                store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
-                store.append(organization_id, sid, "assistant", final_text, meta=raw_chart_meta, user_id=user_id)
-                yield {"phase": "done", "answer": final_text, "data": raw_serialized, "session_id": sid}
-                return
 
         copilot_metrics.increment("copilot.query_empty_results_total")
         tables_msg = (tables_tried[0] + ("..." if len(tables_tried[0]) >= 500 else "")) if tables_tried else "none"

@@ -420,7 +420,21 @@ export default function CopilotChat() {
     const { promise, cancel } = copilotChatStream(
       { message: text, session_id: sessionIdRef.current || undefined, client_id: selectedClientId },
       (ev) => {
-        if (ev.phase === 'analyzing' || ev.phase === 'discovering' || ev.phase === 'generating_sql' || ev.phase === 'running_query' || ev.phase === 'formatting') {
+        if (ev.phase === 'thinking') {
+          if (!thinkingStartTimeRef.current) thinkingStartTimeRef.current = Date.now()
+          setStreamStatus(ev.message || 'Thinking…')
+          const stepEntry = { step: ev.message || 'Thinking…', detail: ev.detail ?? '', detailKind: ev.detail_kind ?? 'text' }
+          thinkingStepsRef.current = [...thinkingStepsRef.current, stepEntry]
+          setCurrentThinkingSteps(thinkingStepsRef.current)
+        } else if (ev.phase === 'thinking_chunk' && ev.chunk) {
+          const steps = thinkingStepsRef.current
+          if (steps.length) {
+            const last = steps[steps.length - 1]
+            const updated = [...steps.slice(0, -1), { ...last, detail: (last.detail || '') + ev.chunk }]
+            thinkingStepsRef.current = updated
+            setCurrentThinkingSteps(updated)
+          }
+        } else if (ev.phase === 'analyzing' || ev.phase === 'discovering' || ev.phase === 'generating_sql' || ev.phase === 'running_query' || ev.phase === 'formatting') {
           if (!thinkingStartTimeRef.current) thinkingStartTimeRef.current = Date.now()
           setStreamStatus(ev.message || 'Processing…')
           const detail = ev.sql_preview ?? ev.detail ?? (ev.tables_count != null ? `Found ${ev.tables_count} tables` : null)

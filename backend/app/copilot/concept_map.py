@@ -1,14 +1,13 @@
 """
 Concept-to-column mapping: map user terms (revenue, product id, etc.) to possible schema column names.
-Used for synonym-aware ranking and SQL template building. Marts-first fallback to raw.
+Used for synonym-aware table ranking and SQL building. No hardcoded dataset types.
 """
 from __future__ import annotations
 
-import os
 import re
 from typing import List, Optional, Set
 
-# User-facing concepts -> candidate column names (order: prefer marts-style names first)
+# User-facing concepts -> candidate column names
 CONCEPT_TO_COLUMNS: dict[str, List[str]] = {
     "revenue": ["revenue", "value", "item_revenue", "purchase_revenue", "total_revenue", "conversions", "sales"],
     "product_id": ["item_id", "product_id", "sku", "product_sku", "item_sku"],
@@ -68,17 +67,3 @@ def resolve_product_id_column(available_columns: Set[str]) -> str | None:
     return None
 
 
-def get_marts_datasets(organization_id: Optional[str] = None) -> Set[str]:
-    """Datasets considered 'marts'. Only from Firestore org config; no env or hardcoded fallback (client privacy)."""
-    if not (organization_id or "").strip():
-        return set()
-    try:
-        from ..auth.firestore_user import get_org_bq_context
-        ctx = get_org_bq_context(organization_id)
-        if not ctx:
-            return set()
-        m = (ctx.get("marts_dataset") or "").strip().lower()
-        ma = (ctx.get("marts_ads_dataset") or "").strip().lower()
-        return {s for s in (m, ma) if s}
-    except Exception:
-        return set()
