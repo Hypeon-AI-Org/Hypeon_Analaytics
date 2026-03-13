@@ -9,7 +9,12 @@ import logging
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Generator, List, Optional, Set
+
+_title_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="copilot_title")
+_sql_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="copilot_sql")
+_SQL_BACKGROUND_TIMEOUT_SEC = 30
 
 from .defaults import get_max_retries
 from .schema_summary import MAX_SUMMARY_CHARS
@@ -69,17 +74,64 @@ def _is_capability_question(msg: str) -> bool:
     return False
 
 
-def _generate_session_title(first_user_message: str) -> str:
-    """Generate a short (4–6 word) session title from the first user message for sidebar display."""
+def _generate_session_title(user_message: str, assistant_answer: str) -> str:
+    """Generate a short 4–6 word descriptive session title via LLM from question + answer preview. Fallback: first 6 words of user message."""
     max_len = 50
-    if not (first_user_message or "").strip():
+    if not (user_message or "").strip():
         return "New chat"
-    text = (first_user_message or "").strip()
+    try:
+        from ..llm_claude import is_claude_configured, chat_completion as claude_completion
+        from ..llm_gemini import is_gemini_configured, chat_completion_with_tools as gemini_chat
+    except Exception:
+        pass
+    else:
+        system = (
+            "You are a title generator. Given a user question and an analytics answer, output ONLY a 4–6 word descriptive title for the chat session. "
+            "No punctuation, no quotes, no explanation. Examples: 'Meta ROAS last 30 days', 'Top products by revenue', 'Google Ads spend by campaign'."
+        )
+        user_content = f"Question: {(user_message or '')[:200]}\nAnswer preview: {(assistant_answer or '')[:300]}"
+        msgs = [{"role": "user", "content": user_content}]
+        raw = ""
+        if is_claude_configured():
+            try:
+                raw = claude_completion(msgs, system=system)
+            except Exception:
+                pass
+        if not raw and is_gemini_configured():
+            try:
+                out = gemini_chat(msgs, [], system=system)
+                raw = (out.get("text") or "").strip()
+            except Exception:
+                pass
+        if raw and isinstance(raw, str) and raw.strip():
+            title = raw.strip()[:max_len]
+            if len(raw.strip()) > max_len:
+                title = title[: max_len - 3] + "..."
+            return title or "New chat"
+    # Fallback: first 6 words of user message
+    text = (user_message or "").strip()
     words = text.split()
-    if len(words) <= 6:
-        return text[:max_len] if len(text) <= max_len else text[:max_len - 3] + "..."
-    title = " ".join(words[:6])
-    return title[:max_len] if len(title) <= max_len else title[:max_len - 3] + "..."
+    title = " ".join(words[:6]) if words else "New chat"
+    return title[:max_len] if len(title) <= max_len else title[: max_len - 3] + "..."
+
+
+def _schedule_session_title_update(
+    store: Any,
+    organization_id: str,
+    session_id: str,
+    user_message: str,
+    assistant_answer: str,
+) -> None:
+    """Run title generation in a background thread so it never adds latency to the response."""
+    def _run() -> None:
+        try:
+            title = _generate_session_title(user_message, assistant_answer)
+            if hasattr(store, "update_title"):
+                store.update_title(organization_id, session_id, title)
+        except Exception as e:
+            logger.debug("Background session title update failed: %s", e)
+
+    _title_executor.submit(_run)
 
 
 def _allow_empty_for_question(message: str) -> bool:
@@ -377,6 +429,33 @@ def _llm_generate_sql(
             (raw[:400] + "..." if len(raw) > 400 else raw),
         )
     return extracted
+
+
+def _llm_generate_sql_and_format(
+    system: str,
+    user_content: str,
+    organization_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    rows_hint: Optional[list] = None,
+    message: Optional[str] = None,
+    sql_used: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Single entry point: when rows_hint is None, generate SQL only (returns (sql, None)).
+    When rows_hint is provided (after BQ execution), format the result only (returns (None, formatted_text)).
+    Falls back to _llm_generate_sql and _format_answer.
+    """
+    if rows_hint is None:
+        sql = _llm_generate_sql(system, user_content, organization_id=organization_id, session_id=session_id)
+        return (sql, None)
+    if message is None or sql_used is None:
+        return (None, None)
+    formatted = _format_answer(
+        message, sql_used, rows_hint,
+        organization_id or "", session_id or "",
+        from_raw=False,
+    )
+    return (None, formatted)
 
 
 def _llm_interpret_question(message: str) -> Optional[str]:
@@ -787,7 +866,12 @@ def chat(
             execution_time_ms,
         )
         t_fmt_start = time.perf_counter() * 1000
-        raw_final = _format_answer(message, sql_used, rows, organization_id, sid)
+        _, raw_final = _llm_generate_sql_and_format(
+            "", "", organization_id=organization_id, session_id=sid,
+            rows_hint=rows, message=message, sql_used=sql_used,
+        )
+        if raw_final is None:
+            raw_final = _format_answer(message, sql_used, rows, organization_id, sid)
         copilot_metrics.timing("copilot.format_ms", (time.perf_counter() * 1000) - t_fmt_start)
         final_text, signal = _extract_signal_from_answer(raw_final)
         serialized_data = _serialize_data_for_sse(rows)
@@ -795,8 +879,8 @@ def chat(
         msgs_before = store.get_messages(organization_id, sid, user_id=user_id)
         store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
         store.append(organization_id, sid, "assistant", final_text, meta=chart_meta, user_id=user_id)
-        if len(msgs_before) == 0 and hasattr(store, "update_title"):
-            store.update_title(organization_id, sid, _generate_session_title(message))
+        if len(msgs_before) == 0:
+            _schedule_session_title_update(store, organization_id, sid, message, final_text)
         out = {"answer": final_text, "data": rows, "text": final_text, "session_id": sid}
         if signal:
             out["signal"] = signal
@@ -816,8 +900,8 @@ def chat(
     msgs_before_fail = store.get_messages(organization_id, sid, user_id=user_id)
     store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
     store.append(organization_id, sid, "assistant", final_text, meta=None, user_id=user_id)
-    if len(msgs_before_fail) == 0 and hasattr(store, "update_title"):
-        store.update_title(organization_id, sid, _generate_session_title(message))
+    if len(msgs_before_fail) == 0:
+        _schedule_session_title_update(store, organization_id, sid, message, final_text)
     return {"answer": final_text, "data": [], "text": final_text, "session_id": sid}
 
 
@@ -978,7 +1062,20 @@ def chat_stream(
             yield {"phase": "done", "answer": final_text, "data": [], "session_id": sid}
             return
 
-        # Live thinking: stream the model's reasoning so the user sees what we're considering
+        # Build prompt for first attempt so we can run SQL gen in parallel with thinking
+        system_first, user_content_first = _build_sql_prompt(
+            message, candidates, cid,
+            previous_sql=None, previous_error=None,
+            conversation_context=conversation_context_str,
+            schema_summary=schema_summary_stream,
+            organization_id=organization_id,
+        )
+        sql_future = _sql_executor.submit(
+            _llm_generate_sql,
+            system_first, user_content_first,
+            organization_id=organization_id, session_id=sid,
+        )
+        # Live thinking: stream the model's reasoning; SQL gen runs concurrently in background
         yield {"phase": "thinking", "message": "Thinking…", "detail": "", "detail_kind": "text", "step_kind": "reasoning"}
         for thinking_chunk in _stream_llm_thinking(message, candidates, organization_id, schema_summary_stream):
             if thinking_chunk:
@@ -990,6 +1087,12 @@ def chat_stream(
         attempt = 0
         previous_sql: Optional[str] = None
         previous_error: Optional[str] = None
+        sql_from_background: Optional[str] = None
+        try:
+            sql_from_background = sql_future.result(timeout=_SQL_BACKGROUND_TIMEOUT_SEC)
+        except (FuturesTimeoutError, Exception) as e:
+            logger.debug("Background SQL gen timeout or failed, falling back to sequential: %s", e)
+            sql_from_background = None
 
         while attempt < max_retries:
             attempt += 1
@@ -1001,14 +1104,18 @@ def chat_stream(
             tables_preview = ", ".join((c.get("table") or "").split(".")[-1] for c in candidates[:5] if c.get("table")) + ("..." if len(candidates) > 5 else "")
             generating_detail = f"Building a query from the schema to answer your question." + (f" Considering tables: {tables_preview}" if tables_preview else "")
             yield {"phase": "generating_sql", "message": "Writing SQL…", "detail": generating_detail, "detail_kind": "text"}
-            system, user_content = _build_sql_prompt(
-                message, candidates, cid,
-                previous_sql=previous_sql, previous_error=previous_error,
-                conversation_context=conversation_context_str,
-                schema_summary=schema_summary_stream,
-                organization_id=organization_id,
-            )
-            sql_used = _llm_generate_sql(system, user_content, organization_id=organization_id, session_id=sid)
+            if attempt == 1 and sql_from_background is not None:
+                sql_used = sql_from_background
+                sql_from_background = None  # use only once
+            else:
+                system, user_content = _build_sql_prompt(
+                    message, candidates, cid,
+                    previous_sql=previous_sql, previous_error=previous_error,
+                    conversation_context=conversation_context_str,
+                    schema_summary=schema_summary_stream,
+                    organization_id=organization_id,
+                )
+                sql_used = _llm_generate_sql(system, user_content, organization_id=organization_id, session_id=sid)
             if not sql_used:
                 previous_error = "LLM did not return a valid SQL query."
                 logger.warning("Copilot LLM returned no SQL on attempt %s (check above for 'no SQL could be extracted' if LLM returned text)", attempt)
@@ -1057,8 +1164,8 @@ def chat_stream(
             msgs_before = store.get_messages(organization_id, sid, user_id=user_id)
             store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
             store.append(organization_id, sid, "assistant", final_text, meta=chart_meta, user_id=user_id)
-            if len(msgs_before) == 0 and hasattr(store, "update_title"):
-                store.update_title(organization_id, sid, _generate_session_title(message))
+            if len(msgs_before) == 0:
+                _schedule_session_title_update(store, organization_id, sid, message, final_text)
             done_payload = {"phase": "done", "answer": final_text, "data": serialized_data, "session_id": sid}
             if signal:
                 done_payload["signal"] = signal
@@ -1079,8 +1186,8 @@ def chat_stream(
         msgs_before_fail = store.get_messages(organization_id, sid, user_id=user_id)
         store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
         store.append(organization_id, sid, "assistant", final_text, meta=None, user_id=user_id)
-        if len(msgs_before_fail) == 0 and hasattr(store, "update_title"):
-            store.update_title(organization_id, sid, _generate_session_title(message))
+        if len(msgs_before_fail) == 0:
+            _schedule_session_title_update(store, organization_id, sid, message, final_text)
         yield {"phase": "done", "answer": final_text, "data": [], "session_id": sid}
     except Exception as e:
         logger.exception("Copilot stream failed")

@@ -322,29 +322,31 @@ def _top_insights_scoped(organization_id: str, client_id: Optional[int], top_n: 
 
 
 def _update_insight_status(insight_id: str, organization_id: str, status: str, user_id: Optional[str]) -> None:
-    from google.cloud import bigquery
-    from .clients.bigquery import get_client, get_analytics_dataset
-    client = get_client()
-    project = get_bq_project()
-    dataset = get_analytics_dataset()
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    user = user_id or "unknown"
-    query = f"""
-    UPDATE `{project}.{dataset}.analytics_insights`
-    SET status = @status, applied_at = CURRENT_TIMESTAMP(), history = CONCAT(COALESCE(history, ''), '; applied_by=', @user, ' at ', @now)
-    WHERE insight_id = @insight_id AND organization_id = @organization_id
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("status", "STRING", status),
-            bigquery.ScalarQueryParameter("user", "STRING", user),
-            bigquery.ScalarQueryParameter("now", "STRING", now),
-            bigquery.ScalarQueryParameter("insight_id", "STRING", insight_id),
-            bigquery.ScalarQueryParameter("organization_id", "STRING", organization_id),
-        ]
-    )
-    client.query(query, job_config=job_config).result()
+    Write-through Firestore: record the status update in Firestore as the primary store.
+    BigQuery is synced asynchronously by a scheduled job (sync_insight_status_to_bq.py).
+    This keeps the API fast and avoids expensive per-click DML; BQ is updated in batch.
+    """
+    from datetime import datetime, timezone
+    try:
+        from .auth.firestore_user import _get_firestore
+        db = _get_firestore()
+        if not db:
+            logger.warning("_update_insight_status: Firestore unavailable, status update not persisted")
+            return
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        user = user_id or "unknown"
+        doc_ref = db.collection("insight_status_updates").document()
+        doc_ref.set({
+            "insight_id": insight_id,
+            "organization_id": organization_id,
+            "status": status,
+            "user_id": user,
+            "applied_at": now,
+            "synced_to_bq": False,
+        })
+    except Exception as e:
+        logger.warning("_update_insight_status: Firestore write failed: %s", e)
 
 
 # ----- Endpoints -----
