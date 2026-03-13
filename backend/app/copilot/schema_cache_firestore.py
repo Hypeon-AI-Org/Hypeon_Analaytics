@@ -1,7 +1,7 @@
 """
 Copilot schema cache in Firestore: per-org cache of dataset/table/column list for faster Copilot.
 Document: copilot_schema_cache/{organization_id}. Fields: updated_at (epoch sec), bq_project, tables.
-Cache is valid for 24 hours; after that Copilot uses live discovery until refresh is called.
+Cache is valid for 12 hours (TTL and refresh threshold aligned); after that Copilot uses live discovery until refresh is called.
 """
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ from typing import Any, List, Optional
 logger = logging.getLogger(__name__)
 
 COLLECTION = "copilot_schema_cache"
-TTL_SECONDS = 24 * 3600  # 24 hours — cache considered valid for Copilot use
-REFRESH_IF_OLDER_THAN_SECONDS = 10 * 3600  # 10 hours — re-run discovery + LLM summary when initializing if older
+# Aligned so there is no gap: cache is served and refreshed at the same threshold (12h).
+TTL_SECONDS = 12 * 3600  # 12 hours — cache considered valid for Copilot use
+REFRESH_IF_OLDER_THAN_SECONDS = 12 * 3600  # 12 hours — re-run discovery when older (no 10h–24h invisible window)
 
 
 def _get_firestore():

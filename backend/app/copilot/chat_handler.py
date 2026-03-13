@@ -199,8 +199,8 @@ def _expand_candidates_with_other_datasets(
     return out
 
 
-# Max candidate tables to include in schema block (more tables = better accuracy, slightly larger prompt)
-MAX_SCHEMA_TABLES = 20
+# Max candidate tables to include in schema block (multi-channel brands can have 30–50 tables)
+MAX_SCHEMA_TABLES = 35
 
 
 def _schema_block(candidates: List[dict]) -> str:
@@ -639,7 +639,7 @@ def chat(
     session_context_messages: List[dict] = []
     if session_id:
         try:
-            session_context_messages = store.get_messages(organization_id, sid, user_id=user_id)[-6:]
+            session_context_messages = store.get_messages(organization_id, sid, user_id=user_id)[-12:]
         except Exception:
             pass
     conversation_context_str: Optional[str] = None
@@ -749,12 +749,15 @@ def chat(
         return {"answer": final_text, "data": rows, "text": final_text, "session_id": sid}
 
     copilot_metrics.increment("copilot.query_empty_results_total")
-    # Show first query in full (up to 500 chars) so WHERE clause is visible for debugging
-    tables_msg = (tables_tried[0] + ("..." if len(tables_tried[0]) >= 500 else "")) if tables_tried else "none"
-    logger.info("Copilot no valid result | intent=%s sql_tried=%s", plan.get("intent", ""), tables_tried)
+    if tables_tried:
+        logger.info(
+            "Copilot no valid result | intent=%s sql_tried_count=%d sql_preview=%s",
+            plan.get("intent", ""),
+            len(tables_tried),
+            (tables_tried[0][:500] + "..." if len(tables_tried[0]) >= 500 else tables_tried[0]),
+        )
     final_text = (
-        f"I couldn't find relevant data for that question. Queries tried: {tables_msg}. "
-        "Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS)."
+        "I couldn't find data matching that question. Try rephrasing or ask about a specific metric (e.g. revenue by product, top channels, ROAS)."
     )
     store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
     store.append(organization_id, sid, "assistant", final_text, meta=None, user_id=user_id)
@@ -869,7 +872,7 @@ def chat_stream(
     session_context_messages: List[dict] = []
     if session_id:
         try:
-            session_context_messages = store.get_messages(organization_id, sid, user_id=user_id)[-6:]
+            session_context_messages = store.get_messages(organization_id, sid, user_id=user_id)[-12:]
         except Exception:
             pass
     conversation_context_str: Optional[str] = None
@@ -999,11 +1002,15 @@ def chat_stream(
             return
 
         copilot_metrics.increment("copilot.query_empty_results_total")
-        tables_msg = (tables_tried[0] + ("..." if len(tables_tried[0]) >= 500 else "")) if tables_tried else "none"
-        logger.info("Copilot no valid result | intent=%s sql_tried=%s", plan.get("intent", ""), tables_tried)
+        if tables_tried:
+            logger.info(
+                "Copilot no valid result | intent=%s sql_tried_count=%d sql_preview=%s",
+                plan.get("intent", ""),
+                len(tables_tried),
+                (tables_tried[0][:500] + "..." if len(tables_tried[0]) >= 500 else tables_tried[0]),
+            )
         final_text = (
-            f"I couldn't find relevant data for that question. Queries tried: {tables_msg}. "
-            "Try rephrasing or ask about a different metric (e.g. revenue by product, top channels, ROAS)."
+            "I couldn't find data matching that question. Try rephrasing or ask about a specific metric (e.g. revenue by product, top channels, ROAS)."
         )
         store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
         store.append(organization_id, sid, "assistant", final_text, meta=None, user_id=user_id)

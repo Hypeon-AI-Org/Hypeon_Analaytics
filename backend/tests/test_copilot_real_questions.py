@@ -85,33 +85,35 @@ def test_planner_returns_candidates_with_columns():
 def test_chat_returns_formatted_answer_for_real_question_when_mock_returns_data():
     """Chat returns a well-structured answer when LLM SQL + run return rows (real question)."""
     org_ctx = {"bq_project": "p", "marts_dataset": "d", "marts_ads_dataset": "d_ads", "bq_location": "europe-north2"}
-    with patch("backend.app.copilot.chat_handler.run_bigquery_sql") as mock_run:
-        mock_run.return_value = {
-            "rows": [
-                {"item_id": "SKU1", "revenue": 1000, "cumulative_pct": 25.5},
-                {"item_id": "SKU2", "revenue": 800, "cumulative_pct": 45.0},
-            ],
-            "schema": ["item_id", "revenue", "cumulative_pct"],
-            "row_count": 2,
-            "stats": {},
-            "error": None,
-        }
-        with patch("backend.app.copilot.chat_handler._llm_generate_sql") as mock_llm:
-            mock_llm.return_value = "SELECT item_id, revenue, 50 AS cumulative_pct FROM `p.d.t` LIMIT 10"
-            with patch("backend.app.copilot.planner.analyze") as mock_analyze:
-                mock_analyze.return_value = {
-                    "intent": "top 10 product revenue pareto",
-                    "candidates": [{"table": "p.d.t", "columns": ["item_id", "revenue", "cumulative_pct"]}],
-                }
-                with patch("backend.app.auth.firestore_user.get_org_bq_context", return_value=org_ctx):
-                    from backend.app.copilot.chat_handler import chat
+    allowed_tables = {("p", "d", "t")}
+    with patch("backend.app.copilot.schema_cache_firestore.get_allowed_tables_set", return_value=allowed_tables):
+        with patch("backend.app.copilot.chat_handler.run_bigquery_sql") as mock_run:
+            mock_run.return_value = {
+                "rows": [
+                    {"item_id": "SKU1", "revenue": 1000, "cumulative_pct": 25.5},
+                    {"item_id": "SKU2", "revenue": 800, "cumulative_pct": 45.0},
+                ],
+                "schema": ["item_id", "revenue", "cumulative_pct"],
+                "row_count": 2,
+                "stats": {},
+                "error": None,
+            }
+            with patch("backend.app.copilot.chat_handler._llm_generate_sql") as mock_llm:
+                mock_llm.return_value = "SELECT item_id, revenue, 50 AS cumulative_pct FROM `p.d.t` LIMIT 10"
+                with patch("backend.app.copilot.planner.analyze") as mock_analyze:
+                    mock_analyze.return_value = {
+                        "intent": "top 10 product revenue pareto",
+                        "candidates": [{"table": "p.d.t", "columns": ["item_id", "revenue", "cumulative_pct"]}],
+                    }
+                    with patch("backend.app.auth.firestore_user.get_org_bq_context", return_value=org_ctx):
+                        from backend.app.copilot.chat_handler import chat
 
-                    out = chat(
-                        "org1",
-                        "Top 10 product IDs driving 50% of revenue — pareto/cumulative revenue ranking",
-                        session_id="s1",
-                        client_id=1,
-                    )
+                        out = chat(
+                            "org1",
+                            "Top 10 product IDs driving 50% of revenue — pareto/cumulative revenue ranking",
+                            session_id="s1",
+                            client_id=1,
+                        )
     assert out.get("answer") or out.get("text")
     assert out.get("data") and len(out["data"]) == 2
     assert "session_id" in out

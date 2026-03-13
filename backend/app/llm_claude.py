@@ -345,9 +345,11 @@ def stream_claude(prompt: str) -> Generator[str, None, None]:
     """
     Yield text chunks from Claude (streaming) via Anthropic SDK.
     Uses COPILOT_MAX_OUTPUT_TOKENS for max_tokens guard.
+    On mid-stream failure, yields a graceful suffix instead of raw JSON fallback if some text was already sent.
     """
     max_tokens = _get_max_output_tokens()
     t0 = time.perf_counter()
+    yielded_any = False
     try:
         client = _build_client()
         model = _get_model()
@@ -359,6 +361,7 @@ def stream_claude(prompt: str) -> Generator[str, None, None]:
         ) as stream:
             for text in stream.text_stream:
                 if text:
+                    yielded_any = True
                     yield text
         elapsed_ms = (time.perf_counter() - t0) * 1000
         logger.info(
@@ -372,4 +375,7 @@ def stream_claude(prompt: str) -> Generator[str, None, None]:
             type(e).__name__,
             exc_info=True,
         )
-        yield _fallback_json()
+        if yielded_any:
+            yield "\n\n— (response cut short)"
+        else:
+            yield _fallback_json()

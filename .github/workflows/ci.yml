@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pandas google-cloud-bigquery fastapi uvicorn pydantic
+          pip install -r backend/requirements.txt
       - name: Lint (ruff)
         run: |
           pip install ruff
@@ -47,4 +47,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build backend image
-        run: docker build -t hypeon-backend:v1 -f backend/Dockerfile . 2>/dev/null || echo "Dockerfile may need path fixes"
+        run: docker build -t hypeon-backend:v1 -f backend/Dockerfile .

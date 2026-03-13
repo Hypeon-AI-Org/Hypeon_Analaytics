@@ -170,6 +170,35 @@ def test_validator_rejects_negative_count():
     assert ok is False
 
 
+def test_validator_accepts_roas_over_100():
+    """Columns like conversion_percent or roas_percent_change can be multipliers (e.g. 340 = 3.4x); only _pct/_rate get 0-100 gate."""
+    from backend.app.copilot.validator import validate
+    ok, _ = validate(
+        {"rows": [{"conversion_percent": 340, "roas": 2.5}], "schema": ["conversion_percent", "roas"], "error": None},
+        "What is ROAS?",
+    )
+    assert ok is True
+    ok2, _ = validate(
+        {"rows": [{"some_pct": 150}], "schema": ["some_pct"], "error": None},
+        "Percentage?",
+    )
+    assert ok2 is False
+
+
+def test_replan_excludes_failed_datasets():
+    """replan(failed_sql=...) returns candidates from other datasets, not the ones in failed_sql."""
+    with patch("backend.app.copilot.tools.discover_tables") as mock_discover:
+        mock_discover.return_value = [
+            {"project": "p", "dataset": "other_ds", "table": "other_tbl", "columns": []},
+        ]
+        from backend.app.copilot.planner import replan
+        plan = replan("views count", failed_sql="SELECT 1 FROM `p.marts.fct`", organization_id="org1")
+    assert plan.get("candidates")
+    mock_discover.assert_called_once()
+    call_kw = mock_discover.call_args[1]
+    assert call_kw.get("exclude_datasets") == {"marts"}
+
+
 def test_run_bigquery_sql_readonly_rejects_insert():
     """run_bigquery_sql_readonly must reject INSERT (returns error, no rows)."""
     from backend.app.clients.bigquery import run_bigquery_sql_readonly

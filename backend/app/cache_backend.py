@@ -16,6 +16,8 @@ _lock = threading.Lock()
 
 # In-memory fallback store (key -> JSON-serializable value)
 _memory: dict[str, Any] = {}
+# In-memory rate limit fallback when Redis unavailable (key -> list of timestamps)
+_ratelimit_memory: dict[str, list] = {}
 # Prefix for Redis keys
 PREFIX = "hypeon:cache:"
 
@@ -98,3 +100,42 @@ def cache_has_any(organization_id: str, client_id: int) -> bool:
     """True if at least one slot is populated."""
     all_ = cache_get_all(organization_id, client_id)
     return len(all_) > 0
+
+
+# Rate limit: prefix and window (shared with middleware)
+RATELIMIT_PREFIX = "hypeon:ratelimit:"
+RATELIMIT_WINDOW_SEC = 60
+
+
+def rate_limit_is_over_limit(key: str, limit: int = 20) -> bool:
+    """
+    Check and increment rate limit for key. Returns True if over limit (caller should return 429).
+    Uses Redis when available so limit is shared across pods; falls back to in-memory per process.
+    """
+    r = _get_redis()
+    if r:
+        try:
+            full_key = f"{RATELIMIT_PREFIX}{key}"
+            count_raw = r.get(full_key)
+            count = int(count_raw) if count_raw else 0
+            if count >= limit:
+                return True
+            r.incr(full_key)
+            if count == 0:
+                r.expire(full_key, RATELIMIT_WINDOW_SEC)
+            return False
+        except Exception:
+            pass
+    # In-memory fallback (per-process when Redis unavailable)
+    import time
+    with _lock:
+        if key not in _ratelimit_memory:
+            _ratelimit_memory[key] = []
+        ts_list = _ratelimit_memory[key]
+        now = time.monotonic()
+        while ts_list and ts_list[0] < now - RATELIMIT_WINDOW_SEC:
+            ts_list.pop(0)
+        if len(ts_list) >= limit:
+            return True
+        ts_list.append(now)
+    return False

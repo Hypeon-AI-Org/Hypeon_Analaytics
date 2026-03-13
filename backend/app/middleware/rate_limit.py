@@ -1,24 +1,17 @@
 """
-Rate limit middleware: 15 req/min per user for Copilot endpoints.
-Key: X-Organization-Id + client IP. Returns 429 Too Many Requests when exceeded.
+Rate limit middleware: 20 req/min per user for Copilot endpoints.
+Key: X-Organization-Id + client IP. Uses Redis when REDIS_URL is set (shared across pods).
+Falls back to in-memory per process when Redis is unavailable.
 """
 from __future__ import annotations
 
-import time
-from collections import deque
 from typing import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-# 20 requests per 60 seconds per key (per user)
 RATE_LIMIT_N = 20
-RATE_LIMIT_WINDOW_SEC = 60
-
-# key -> deque of timestamps
-_store: dict[str, deque] = {}
-_store_lock = __import__("threading").Lock()
 
 
 def _key(request: Request) -> str:
@@ -28,29 +21,16 @@ def _key(request: Request) -> str:
     return f"{org}:{ip}"
 
 
-def _is_over_limit(key: str) -> bool:
-    now = time.monotonic()
-    with _store_lock:
-        if key not in _store:
-            _store[key] = deque(maxlen=RATE_LIMIT_N * 2)
-        q = _store[key]
-        while q and q[0] < now - RATE_LIMIT_WINDOW_SEC:
-            q.popleft()
-        if len(q) >= RATE_LIMIT_N:
-            return True
-        q.append(now)
-    return False
-
-
 class CopilotRateLimitMiddleware(BaseHTTPMiddleware):
-    """Limit POST /api/v1/copilot/chat to 20 req/min per user."""
+    """Limit POST /api/v1/copilot/chat to 20 req/min per user. Uses Redis when available."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.scope.get("path") or ""
         if request.method != "POST" or "/api/v1/copilot/" not in path:
             return await call_next(request)
+        from ..cache_backend import rate_limit_is_over_limit
         key = _key(request)
-        if _is_over_limit(key):
+        if rate_limit_is_over_limit(key, limit=RATE_LIMIT_N):
             return JSONResponse(
                 status_code=429,
                 content={"code": "RATE_LIMIT_EXCEEDED", "message": "Too many Copilot requests. Limit 20 per minute."},

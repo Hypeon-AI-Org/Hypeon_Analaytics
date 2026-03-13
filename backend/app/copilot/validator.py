@@ -61,7 +61,9 @@ def validate(
             if isinstance(v, (int, float)) and v < 0:
                 if "count" in (k or "").lower() or "total" in (k or "").lower() or "sum" in (k or "").lower():
                     return False, f"Invalid negative value in column {k}"
-            if isinstance(v, (int, float)) and "percent" in (k or "").lower():
+            # Only apply 0–100 gate to columns that are clearly percentage columns (e.g. _pct, _rate), not ROAS/multipliers
+            col_lower = (k or "").lower()
+            if isinstance(v, (int, float)) and (col_lower.endswith("_pct") or col_lower.endswith("_rate") or col_lower == "percent"):
                 if v < 0 or v > 100:
                     return False, f"Percentage out of range in column {k}"
 
