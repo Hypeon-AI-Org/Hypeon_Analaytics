@@ -33,7 +33,7 @@ def test_fallback_to_second_sql_when_first_returns_empty():
             return {"rows": [], "schema": [], "row_count": 0, "stats": {}, "error": None}
         return {"rows": [{"views": 100}], "schema": ["views"], "row_count": 1, "stats": {}, "error": None}
 
-    def mock_llm_generate_sql(system, user_content):
+    def mock_llm_generate_sql(system, user_content, **kwargs):
         nonlocal call_count
         if call_count == 0:
             return "SELECT SUM(views) AS views FROM `proj.marts.fct` WHERE 1=1 LIMIT 500"

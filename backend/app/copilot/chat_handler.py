@@ -45,7 +45,8 @@ _FORMAT_SYSTEM = """You are a marketing analytics assistant. Turn the query resu
 
 - Start with a short summary or bullets. Add sections (##) and small markdown tables when the result is large or multi-faceted.
 - Use proper markdown tables (header, separator, rows with one newline between). For big result sets, summarize and show 1–2 small tables (e.g. top 10–15 rows); note "Full result has N rows" if needed.
-- If there are 0 rows: say so simply and suggest widening filters or time range if relevant."""
+- If there are 0 rows: say so simply and suggest widening filters or time range if relevant.
+- If the user asked about campaign performance or budget (e.g. "should I scale", "which campaign to cut"), add a final line with only this JSON (no other text on the line): {"signal": "scale" or "hold" or "cut", "campaign": "campaign name or identifier", "reason": "one brief sentence"}. Otherwise omit the JSON line."""
 
 
 def _is_simple_greeting(msg: str) -> bool:
@@ -66,6 +67,19 @@ def _is_capability_question(msg: str) -> bool:
     if any(x in lower for x in ("what can you do", "what do you do", "how can you help", "what are you", "your capabilities")):
         return True
     return False
+
+
+def _generate_session_title(first_user_message: str) -> str:
+    """Generate a short (4–6 word) session title from the first user message for sidebar display."""
+    max_len = 50
+    if not (first_user_message or "").strip():
+        return "New chat"
+    text = (first_user_message or "").strip()
+    words = text.split()
+    if len(words) <= 6:
+        return text[:max_len] if len(text) <= max_len else text[:max_len - 3] + "..."
+    title = " ".join(words[:6])
+    return title[:max_len] if len(title) <= max_len else title[:max_len - 3] + "..."
 
 
 def _allow_empty_for_question(message: str) -> bool:
@@ -324,7 +338,12 @@ def _extract_sql_from_response(text: str) -> Optional[str]:
     return None
 
 
-def _llm_generate_sql(system: str, user_content: str) -> Optional[str]:
+def _llm_generate_sql(
+    system: str,
+    user_content: str,
+    organization_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Optional[str]:
     """Call LLM (Claude or Gemini) to generate SQL; return extracted SQL or None."""
     try:
         from ..llm_claude import is_claude_configured, chat_completion as claude_completion
@@ -335,18 +354,18 @@ def _llm_generate_sql(system: str, user_content: str) -> Optional[str]:
     raw = ""
     if is_claude_configured():
         try:
-            raw = claude_completion(msgs, system=system)
+            raw = claude_completion(msgs, system=system, organization_id=organization_id, session_id=session_id)
         except Exception as e:
             logger.warning("Claude SQL generation failed: %s", e)
             if is_gemini_configured():
                 try:
-                    out = gemini_chat(msgs, [], system=system)
+                    out = gemini_chat(msgs, [], system=system, organization_id=organization_id, session_id=session_id)
                     raw = (out.get("text") or "").strip()
                 except Exception:
                     pass
     if not raw and is_gemini_configured():
         try:
-            out = gemini_chat(msgs, [], system=system)
+            out = gemini_chat(msgs, [], system=system, organization_id=organization_id, session_id=session_id)
             raw = (out.get("text") or "").strip()
         except Exception as e:
             logger.warning("Gemini SQL generation failed: %s", e)
@@ -469,19 +488,39 @@ def _format_answer(message: str, sql_used: str, rows: list, organization_id: str
     msgs = [{"role": "user", "content": prompt}]
     if is_claude_configured():
         try:
-            res = claude_chat(msgs, [], system=_FORMAT_SYSTEM)
+            res = claude_chat(msgs, [], system=_FORMAT_SYSTEM, organization_id=organization_id, session_id=session_id)
             return (res.get("text") or "").strip() or _fallback_answer(rows, sql_used)
         except Exception:
             if is_gemini_configured():
-                res = gemini_chat(msgs, [], system=_FORMAT_SYSTEM)
+                res = gemini_chat(msgs, [], system=_FORMAT_SYSTEM, organization_id=organization_id, session_id=session_id)
                 return (res.get("text") or "").strip() or _fallback_answer(rows, sql_used)
     if is_gemini_configured():
         try:
-            res = gemini_chat(msgs, [], system=_FORMAT_SYSTEM)
+            res = gemini_chat(msgs, [], system=_FORMAT_SYSTEM, organization_id=organization_id, session_id=session_id)
             return (res.get("text") or "").strip() or _fallback_answer(rows, sql_used)
         except Exception:
             pass
     return _fallback_answer(rows, sql_used)
+
+
+def _extract_signal_from_answer(text: str) -> tuple[str, Optional[dict]]:
+    """If the formatted answer ends with a JSON line containing signal (scale|hold|cut), extract it and return (text without that line, signal dict)."""
+    if not text or not isinstance(text, str):
+        return (text or "", None)
+    lines = text.strip().split("\n")
+    for i in range(len(lines) - 1, -1, -1):
+        line = (lines[i] or "").strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            data = json.loads(line)
+            if isinstance(data, dict) and data.get("signal") in ("scale", "hold", "cut"):
+                clean_lines = lines[:i] + lines[i + 1:]
+                clean_text = "\n".join(clean_lines).strip()
+                return (clean_text, {"signal": data["signal"], "campaign": data.get("campaign") or "", "reason": data.get("reason") or ""})
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return (text, None)
 
 
 def _fallback_answer(rows: list, sql_used: str) -> str:
@@ -657,6 +696,7 @@ def chat(
     max_retries = get_max_retries()
     copilot_metrics.increment("copilot.planner_attempts_total")
     plan = planner_analyze(message, context=session_context_messages or None, client_id=cid, organization_id=organization_id)
+    copilot_metrics.timing("copilot.planner_ms", (time.perf_counter() * 1000) - start_ms)
     candidates = list(plan.get("candidates") or [])
     schema_summary: Optional[str] = None
     try:
@@ -696,7 +736,9 @@ def chat(
             schema_summary=schema_summary,
             organization_id=organization_id,
         )
-        sql_used = _llm_generate_sql(system, user_content)
+        t_sql_start = time.perf_counter() * 1000
+        sql_used = _llm_generate_sql(system, user_content, organization_id=organization_id, session_id=sid)
+        copilot_metrics.timing("copilot.sql_gen_ms", (time.perf_counter() * 1000) - t_sql_start)
         if not sql_used:
             previous_error = "LLM did not return a valid SQL query."
             logger.warning("Copilot LLM returned no SQL on attempt %s (check for 'no SQL could be extracted' above)", attempt)
@@ -706,9 +748,12 @@ def chat(
             logger.warning("Copilot tenant isolation rejected SQL on attempt %s for org=%s", attempt, organization_id)
             continue
         tables_tried.append(sql_used[:500])
+        t_bq_start = time.perf_counter() * 1000
         try:
             out = run_bigquery_sql(sql_used, organization_id=organization_id, client_id=cid)
+            copilot_metrics.timing("copilot.bq_execution_ms", (time.perf_counter() * 1000) - t_bq_start)
         except Exception as e:
+            copilot_metrics.timing("copilot.bq_execution_ms", (time.perf_counter() * 1000) - t_bq_start)
             previous_sql = sql_used
             previous_error = str(e)[:300]
             logger.warning("Copilot run_bigquery_sql failed: %s", e)
@@ -741,12 +786,21 @@ def chat(
             len(rows),
             execution_time_ms,
         )
-        final_text = _format_answer(message, sql_used, rows, organization_id, sid)
+        t_fmt_start = time.perf_counter() * 1000
+        raw_final = _format_answer(message, sql_used, rows, organization_id, sid)
+        copilot_metrics.timing("copilot.format_ms", (time.perf_counter() * 1000) - t_fmt_start)
+        final_text, signal = _extract_signal_from_answer(raw_final)
         serialized_data = _serialize_data_for_sse(rows)
         chart_meta = {"data": serialized_data[:MAX_CHART_ROWS_STORED]} if serialized_data else None
+        msgs_before = store.get_messages(organization_id, sid, user_id=user_id)
         store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
         store.append(organization_id, sid, "assistant", final_text, meta=chart_meta, user_id=user_id)
-        return {"answer": final_text, "data": rows, "text": final_text, "session_id": sid}
+        if len(msgs_before) == 0 and hasattr(store, "update_title"):
+            store.update_title(organization_id, sid, _generate_session_title(message))
+        out = {"answer": final_text, "data": rows, "text": final_text, "session_id": sid}
+        if signal:
+            out["signal"] = signal
+        return out
 
     copilot_metrics.increment("copilot.query_empty_results_total")
     if tables_tried:
@@ -759,8 +813,11 @@ def chat(
     final_text = (
         "I couldn't find data matching that question. Try rephrasing or ask about a specific metric (e.g. revenue by product, top channels, ROAS)."
     )
+    msgs_before_fail = store.get_messages(organization_id, sid, user_id=user_id)
     store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
     store.append(organization_id, sid, "assistant", final_text, meta=None, user_id=user_id)
+    if len(msgs_before_fail) == 0 and hasattr(store, "update_title"):
+        store.update_title(organization_id, sid, _generate_session_title(message))
     return {"answer": final_text, "data": [], "text": final_text, "session_id": sid}
 
 
@@ -951,7 +1008,7 @@ def chat_stream(
                 schema_summary=schema_summary_stream,
                 organization_id=organization_id,
             )
-            sql_used = _llm_generate_sql(system, user_content)
+            sql_used = _llm_generate_sql(system, user_content, organization_id=organization_id, session_id=sid)
             if not sql_used:
                 previous_error = "LLM did not return a valid SQL query."
                 logger.warning("Copilot LLM returned no SQL on attempt %s (check above for 'no SQL could be extracted' if LLM returned text)", attempt)
@@ -993,12 +1050,19 @@ def chat_stream(
             for chunk in _format_answer_stream(message, sql_used, rows, from_raw=False):
                 accumulated.append(chunk)
                 yield {"phase": "answer_chunk", "chunk": chunk}
-            final_text = "".join(accumulated)
+            raw_final = "".join(accumulated)
+            final_text, signal = _extract_signal_from_answer(raw_final)
             serialized_data = _serialize_data_for_sse(rows)
             chart_meta = {"data": serialized_data[:MAX_CHART_ROWS_STORED]} if serialized_data else None
+            msgs_before = store.get_messages(organization_id, sid, user_id=user_id)
             store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
             store.append(organization_id, sid, "assistant", final_text, meta=chart_meta, user_id=user_id)
-            yield {"phase": "done", "answer": final_text, "data": serialized_data, "session_id": sid}
+            if len(msgs_before) == 0 and hasattr(store, "update_title"):
+                store.update_title(organization_id, sid, _generate_session_title(message))
+            done_payload = {"phase": "done", "answer": final_text, "data": serialized_data, "session_id": sid}
+            if signal:
+                done_payload["signal"] = signal
+            yield done_payload
             return
 
         copilot_metrics.increment("copilot.query_empty_results_total")
@@ -1012,8 +1076,11 @@ def chat_stream(
         final_text = (
             "I couldn't find data matching that question. Try rephrasing or ask about a specific metric (e.g. revenue by product, top channels, ROAS)."
         )
+        msgs_before_fail = store.get_messages(organization_id, sid, user_id=user_id)
         store.append(organization_id, sid, "user", message, meta=None, user_id=user_id)
         store.append(organization_id, sid, "assistant", final_text, meta=None, user_id=user_id)
+        if len(msgs_before_fail) == 0 and hasattr(store, "update_title"):
+            store.update_title(organization_id, sid, _generate_session_title(message))
         yield {"phase": "done", "answer": final_text, "data": [], "session_id": sid}
     except Exception as e:
         logger.exception("Copilot stream failed")

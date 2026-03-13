@@ -14,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { copilotChatStream, copilotChatHistory, fetchCopilotSessions, fetchCopilotStoreInfo, deleteCopilotSessions } from './api'
+import { copilotChatStream, copilotChatHistory, fetchCopilotSessions, fetchCopilotStoreInfo, deleteCopilotSessions, fetchCopilotSuggestions } from './api'
 import { useAuth } from './contexts/AuthContext'
 import { useUserOrg } from './contexts/UserOrgContext'
 
@@ -314,8 +314,16 @@ export default function CopilotChat() {
   const [streamThinkingMinimized, setStreamThinkingMinimized] = useState(false)
   const [expandedThinkingMsgId, setExpandedThinkingMsgId] = useState(null)
   const [feedbackByIndex, setFeedbackByIndex] = useState({})
+  const [suggestions, setSuggestions] = useState([])
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+  useEffect(() => {
+    if (!organizationId || messages.length > 0) return
+    fetchCopilotSuggestions(organizationId)
+      .then((r) => setSuggestions(r.suggestions || []))
+      .catch(() => setSuggestions([]))
+  }, [organizationId, messages.length])
 
   const setMessageFeedback = (msgIdx, value) => {
     setFeedbackByIndex((prev) => ({ ...prev, [msgIdx]: prev[msgIdx] === value ? null : value }))
@@ -485,10 +493,13 @@ export default function CopilotChat() {
             const last = prev[prev.length - 1]
             const finalText = ev.answer ?? streamingTextRef.current ?? ''
             const thinkingSteps = thinkingStepsRef.current.length ? thinkingStepsRef.current.slice() : null
+            const signal = ev.signal || null
+            const payload = { role: 'assistant', text: finalText, data: ev.data || null, thinkingSteps, thinkingMinimized: true, thinkingDurationSec }
+            if (signal) payload.signal = signal
             if (last?.role === 'assistant' && last?.streaming) {
-              return [...prev.slice(0, -1), { role: 'assistant', text: finalText, data: ev.data || null, thinkingSteps, thinkingMinimized: true, thinkingDurationSec }]
+              return [...prev.slice(0, -1), payload]
             }
-            return [...prev, { role: 'assistant', text: finalText, data: ev.data || null, thinkingSteps, thinkingMinimized: true, thinkingDurationSec }]
+            return [...prev, payload]
           })
           setCurrentThinkingSteps([])
           setStreamThinkingMinimized(false)
@@ -750,7 +761,7 @@ export default function CopilotChat() {
                 </p>
                 <p className="mt-8 text-xs text-slate-400">Suggested questions</p>
                 <div className="mt-3 w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {exampleCards.map(({ title, description, icon, question }, idx) => (
+                  {(suggestions.length > 0 ? suggestions.map((q) => ({ title: q.length > 45 ? q.slice(0, 45) + '…' : q, description: '', icon: 'chart', question: q })) : exampleCards).map(({ title, description, icon, question }, idx) => (
                     <button
                       key={title}
                       type="button"
@@ -793,6 +804,19 @@ export default function CopilotChat() {
                     <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                   ) : (
                     <>
+                      {msg.signal && (
+                        <div className={`mb-3 rounded-xl border-2 px-4 py-3 ${
+                          msg.signal.signal === 'scale' ? 'border-emerald-500/80 bg-emerald-50/80' :
+                          msg.signal.signal === 'hold' ? 'border-amber-500/80 bg-amber-50/80' :
+                          'border-red-500/80 bg-red-50/80'
+                        }`}>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                            {msg.signal.signal === 'scale' ? 'Scale' : msg.signal.signal === 'hold' ? 'Hold' : 'Cut'}
+                          </p>
+                          {msg.signal.campaign && <p className="text-sm font-medium text-slate-800 mt-0.5">{msg.signal.campaign}</p>}
+                          {msg.signal.reason && <p className="text-sm text-slate-600 mt-1">{msg.signal.reason}</p>}
+                        </div>
+                      )}
                       {(() => {
                         const isStreamingMsg = idx === messages.length - 1 && msg.role === 'assistant' && (msg.streaming || loading)
                         const steps = msg.thinkingSteps ?? (isStreamingMsg ? currentThinkingSteps : null)

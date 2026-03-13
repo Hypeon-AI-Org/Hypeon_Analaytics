@@ -110,6 +110,8 @@ def chat_completion_with_tools(
     tools: list[dict],
     *,
     system: str | None = None,
+    organization_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """
     Multi-turn chat with tool use. messages = [{"role": "user"|"assistant", "content": "..." or list}, ...].
@@ -191,7 +193,17 @@ def chat_completion_with_tools(
 
         if tool_calls:
             return {"tool_calls": tool_calls, "content_blocks": content_blocks}
-        return {"text": "".join(text_parts).strip()}
+        out = {"text": "".join(text_parts).strip()}
+        usage = getattr(response, "usage_metadata", None) or getattr(response, "usage", None)
+        if (organization_id or "").strip() and usage is not None:
+            try:
+                from .audit_logger import log_copilot_token_usage
+                in_tok = getattr(usage, "prompt_token_count", None) or getattr(usage, "input_tokens", None) or 0
+                out_tok = getattr(usage, "candidates_token_count", None) or getattr(usage, "output_tokens", None) or 0
+                log_copilot_token_usage(organization_id.strip(), session_id, in_tok or 0, out_tok or 0, model or "")
+            except Exception:
+                pass
+        return out
     except Exception as e:
         logger.warning(
             "Gemini chat with tools failed | error=%s | type=%s",

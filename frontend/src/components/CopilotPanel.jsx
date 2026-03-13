@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { copilotChatStream, copilotChatHistory, fetchCopilotSessions } from '../api'
+import { copilotChatStream, copilotChatHistory, fetchCopilotSessions, fetchCopilotSuggestions } from '../api'
 import { useUserOrg } from '../contexts/UserOrgContext'
 import DynamicDashboardRenderer from './DynamicDashboardRenderer'
 import DashboardRendererErrorBoundary from './DashboardRendererErrorBoundary'
@@ -29,6 +29,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
   const [streamStatus, setStreamStatus] = useState(null)
   const [error, setError] = useState(null)
   const [sessions, setSessions] = useState([])
+  const [suggestions, setSuggestions] = useState([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const sessionIdRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -70,6 +71,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
 
   useEffect(() => {
     if (!open) return
+    fetchCopilotSuggestions(organizationId).then((r) => setSuggestions(r.suggestions || [])).catch(() => setSuggestions([]))
     fetchCopilotSessions(organizationId)
       .then((r) => setSessions(r.sessions || []))
       .catch((err) => {
@@ -134,12 +136,15 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             fetchCopilotSessions(organizationId).then((r) => setSessions(r.sessions || [])).catch((err) => setError(err?.message || 'Failed to refresh sessions'))
           }
           const finalText = ev.answer ?? streamingTextRef.current ?? ''
+          const signal = ev.signal || null
           setMessages((prev) => {
             const last = prev[prev.length - 1]
+            const payload = { role: 'assistant', text: finalText, layout: ev.layout || null }
+            if (signal) payload.signal = signal
             if (last?.role === 'assistant' && last?.streaming) {
-              return [...prev.slice(0, -1), { role: 'assistant', text: finalText, layout: ev.layout || null }]
+              return [...prev.slice(0, -1), payload]
             }
-            return [...prev, { role: 'assistant', text: finalText, layout: ev.layout || null }]
+            return [...prev, payload]
           })
           setStreamStatus(null)
           setLoading(false)
@@ -244,7 +249,22 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
         {messages.length === 0 && !loading && (
           <div className="text-sm text-slate-500 text-center py-8">
             <p className="font-medium text-slate-700">Ask about your marketing analytics</p>
-            <p className="mt-1">Try: &quot;Summarize my top campaigns&quot; or &quot;Show me a table of spend by campaign&quot;</p>
+            {suggestions.length > 0 ? (
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {suggestions.slice(0, 4).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => { setInput(q); inputRef.current?.focus() }}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    {q.length > 50 ? q.slice(0, 50) + '…' : q}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1">Try: &quot;Summarize my top campaigns&quot; or &quot;Show me a table of spend by campaign&quot;</p>
+            )}
           </div>
         )}
         {messages.map((msg, idx) => (
@@ -265,6 +285,17 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
               ) : (
                 <>
+                  {msg.signal && (
+                    <div className={`mb-2 rounded-lg border px-3 py-2 text-xs ${
+                      msg.signal.signal === 'scale' ? 'border-emerald-500/80 bg-emerald-50/80' :
+                      msg.signal.signal === 'hold' ? 'border-amber-500/80 bg-amber-50/80' :
+                      'border-red-500/80 bg-red-50/80'
+                    }`}>
+                      <span className="font-semibold uppercase">{msg.signal.signal}</span>
+                      {msg.signal.campaign && <span className="ml-1">— {msg.signal.campaign}</span>}
+                      {msg.signal.reason && <p className="mt-1 text-slate-600">{msg.signal.reason}</p>}
+                    </div>
+                  )}
                   {msg.text ? (
                     <div className="prose prose-sm max-w-none text-slate-700 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-table:border-collapse prose-table:w-full prose-th:bg-slate-100 prose-td:border-b prose-td:border-slate-200">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>

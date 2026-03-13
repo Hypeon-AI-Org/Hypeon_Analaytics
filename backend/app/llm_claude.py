@@ -186,10 +186,17 @@ def is_claude_configured() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def chat_completion(messages: list[dict], *, system: str | None = None) -> str:
+def chat_completion(
+    messages: list[dict],
+    *,
+    system: str | None = None,
+    organization_id: str | None = None,
+    session_id: str | None = None,
+) -> str:
     """
     Multi-turn chat: messages = [{"role": "user"|"assistant", "content": "..."}, ...].
     Optional system prompt. Returns assistant reply text.
+    When organization_id and session_id are provided, token usage is persisted to Firestore.
     """
     if not messages:
         return ""
@@ -206,6 +213,19 @@ def chat_completion(messages: list[dict], *, system: str | None = None) -> str:
         if system:
             kwargs["system"] = system
         response = _messages_create_with_retry(client, **kwargs)
+        usage = getattr(response, "usage", None)
+        if (organization_id or "").strip() and usage is not None:
+            try:
+                from .audit_logger import log_copilot_token_usage
+                log_copilot_token_usage(
+                    organization_id.strip(),
+                    session_id,
+                    getattr(usage, "input_tokens", 0) or 0,
+                    getattr(usage, "output_tokens", 0) or 0,
+                    model,
+                )
+            except Exception:
+                pass
         text_parts = []
         for block in (response.content or []):
             if getattr(block, "text", None):
@@ -234,6 +254,8 @@ def chat_completion_with_tools(
     *,
     system: str | None = None,
     max_rounds: int = 5,
+    organization_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """
     Multi-turn chat with tool use. messages = [{"role": "user"|"assistant", "content": "..." or list[blocks]}, ...].
@@ -305,7 +327,21 @@ def chat_completion_with_tools(
                     content_blocks.append({"type": "text", "text": block.text})
             if tool_calls:
                 return {"tool_calls": tool_calls, "content_blocks": content_blocks}
-            return {"text": "".join(text_parts).strip()}
+            out = {"text": "".join(text_parts).strip()}
+            usage = getattr(response, "usage", None)
+            if (organization_id or "").strip() and usage is not None:
+                try:
+                    from .audit_logger import log_copilot_token_usage
+                    log_copilot_token_usage(
+                        organization_id.strip(),
+                        session_id,
+                        getattr(usage, "input_tokens", 0) or 0,
+                        getattr(usage, "output_tokens", 0) or 0,
+                        model,
+                    )
+                except Exception:
+                    pass
+            return out
         except Exception as e:
             last_exception = e
             err_str = str(e)

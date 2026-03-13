@@ -48,6 +48,7 @@ function apiErrorMessage(res, err) {
 }
 
 // ----- Current user's organization and datasets (call after login) -----
+/** @returns {Promise<{ organization_id: string, name?: string, client_ids: number[], ad_channels: object[], projects?: object[] }>} */
 export async function fetchMe() {
   const res = await fetchWithTimeout(`${apiBase()}/api/v1/me`, { headers: await getAuthHeaders() })
   if (!res.ok) {
@@ -126,6 +127,8 @@ export async function fetchGoogleAnalyticsAnalysis({ client_id, days, start_date
 }
 
 // ----- Copilot chat (LLM + run_sql on ADS/GA4 datasets) -----
+/** @param {{ message: string, session_id?: string, client_id?: number }} [options]
+ *  @returns {Promise<{ answer: string, text: string, data: object[], session_id: string, signal?: { signal: 'scale'|'hold'|'cut', campaign: string, reason: string } }>} */
 export async function copilotChat({ message, session_id, client_id } = {}) {
   const res = await fetch(`${apiBase()}/api/v1/copilot/chat`, {
     method: 'POST',
@@ -140,7 +143,10 @@ export async function copilotChat({ message, session_id, client_id } = {}) {
   return res.json()
 }
 
-/** Stream copilot chat: calls onEvent for each SSE event (phase + message, then done/error). Returns { promise, cancel }. */
+/** Stream copilot chat: calls onEvent for each SSE event (phase + message, then done/error).
+ *  @param {{ message: string, session_id?: string, client_id?: number }} [options]
+ *  @param {(ev: { phase: string, message?: string, chunk?: string, answer?: string, data?: object[], session_id?: string, error?: string, signal?: { signal: 'scale'|'hold'|'cut', campaign: string, reason: string } }) => void} [onEvent]
+ *  @returns {{ promise: Promise<void>, cancel: () => void }} */
 export function copilotChatStream({ message, session_id, client_id } = {}, onEvent) {
   const controller = new AbortController()
   const promise = (async () => {
@@ -182,6 +188,8 @@ export function copilotChatStream({ message, session_id, client_id } = {}, onEve
   return { promise, cancel: () => controller.abort() }
 }
 
+/** @param {string} session_id
+ *  @returns {Promise<{ messages: { role: string, content: string, layout?: object, data?: object[] }[] }>} */
 export async function copilotChatHistory(session_id) {
   const res = await fetch(`${apiBase()}/api/v1/copilot/chat/history?session_id=${encodeURIComponent(session_id)}`, {
     headers: await getAuthHeaders(),
@@ -193,7 +201,8 @@ export async function copilotChatHistory(session_id) {
   return res.json()
 }
 
-/** @param {string | null | undefined} [organizationId] - org from /me; ensures sessions list matches current user org. */
+/** @param {string | null | undefined} [organizationId] - org from /me; ensures sessions list matches current user org.
+ *  @returns {Promise<{ sessions: { session_id: string, title: string, updated_at: number }[] }>} */
 export async function fetchCopilotSessions(organizationId) {
   const res = await fetchWithTimeout(
     `${apiBase()}/api/v1/copilot/sessions`,
@@ -204,6 +213,13 @@ export async function fetchCopilotSessions(organizationId) {
     const err = await res.json().catch(() => ({}))
     throw new Error(apiErrorMessage(res, err))
   }
+  return res.json()
+}
+
+/** Suggested questions for empty Copilot state based on org's connected data sources. Returns { suggestions: string[] }. */
+export async function fetchCopilotSuggestions(organizationId) {
+  const res = await fetch(`${apiBase()}/api/v1/copilot/suggestions`, { headers: await getAuthHeaders(organizationId) })
+  if (!res.ok) return { suggestions: [] }
   return res.json()
 }
 

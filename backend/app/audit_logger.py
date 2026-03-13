@@ -73,3 +73,33 @@ def log_copilot_query(organization_id: str, insight_id: str, user_id: Optional[s
 
 def log_user_action(organization_id: str, action: str, user_id: Optional[str] = None, entity_id: Optional[str] = None, **extra: Any) -> None:
     log_audit("user_action", organization_id, entity_id=entity_id, user_id=user_id, action=action, **extra)
+
+
+def log_copilot_token_usage(
+    organization_id: str,
+    session_id: Optional[str],
+    input_tokens: int,
+    output_tokens: int,
+    model: str = "",
+) -> None:
+    """Persist LLM token usage per org/session to Firestore for billing and quota audit."""
+    if not (organization_id or "").strip():
+        return
+    try:
+        from .auth.firestore_user import _get_firestore
+        db = _get_firestore()
+        if not db:
+            return
+        from datetime import datetime, timezone
+        coll = db.collection("copilot_usage")
+        doc = coll.document()
+        doc.set({
+            "organization_id": organization_id.strip(),
+            "session_id": (session_id or "").strip() or None,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "model": (model or "").strip() or None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass

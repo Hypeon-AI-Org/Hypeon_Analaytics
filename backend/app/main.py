@@ -611,10 +611,10 @@ def _copilot_safe_response(out: dict) -> JSONResponse:
             row[k] = v.isoformat() if hasattr(v, "isoformat") else v
         data.append(row)
     session_id = str(out.get("session_id") or "")
-    return JSONResponse(
-        status_code=200,
-        content={"answer": answer, "text": text, "data": data, "session_id": session_id},
-    )
+    content = {"answer": answer, "text": text, "data": data, "session_id": session_id}
+    if out.get("signal"):
+        content["signal"] = out["signal"]
+    return JSONResponse(status_code=200, content=content)
 
 
 @app.post("/api/v1/copilot/chat")
@@ -802,6 +802,59 @@ def copilot_datasets(
             for t in tables
         ]
     return out
+
+
+# Suggested questions for empty Copilot state, keyed by connected source type
+_COPILOT_SUGGESTIONS_BY_SOURCE = {
+    "meta_ads": "What was my Meta ROAS last 30 days?",
+    "meta": "What was my Meta ROAS last 30 days?",
+    "google_ads": "Show me top campaigns by spend from Google Ads.",
+    "ga4": "How many sessions and conversions did we get last week?",
+    "pinterest": "What’s my Pinterest ad spend by campaign?",
+    "tiktok": "Summarize TikTok campaign performance this month.",
+    "shopify": "What are my top 10 products by revenue?",
+}
+_DEFAULT_SUGGESTIONS = [
+    "Summarize my top campaigns by performance.",
+    "What was our ROAS last 30 days?",
+    "Show me a table of spend by channel.",
+]
+
+
+def _copilot_suggestions_for_org(org: str) -> list[str]:
+    """Return 3–4 suggested questions based on org's connected data sources."""
+    try:
+        flat = get_org_projects_flat(get_organization(org) or {})
+        seen = set()
+        out = []
+        for c in (flat or []):
+            t = (c.get("type") or "").strip().lower()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            q = _COPILOT_SUGGESTIONS_BY_SOURCE.get(t)
+            if q and q not in out:
+                out.append(q)
+        if len(out) >= 3:
+            return out[:4]
+        for d in _DEFAULT_SUGGESTIONS:
+            if d not in out:
+                out.append(d)
+            if len(out) >= 4:
+                break
+        return out[:4] if out else _DEFAULT_SUGGESTIONS[:4]
+    except Exception:
+        return _DEFAULT_SUGGESTIONS[:4]
+
+
+@app.get("/api/v1/copilot/suggestions")
+def copilot_suggestions(
+    request: Request,
+    _role: str = Depends(require_role("admin", "analyst", "viewer")),
+    org: str = Depends(require_organization),
+):
+    """Return 3–4 suggested questions for the empty Copilot state based on org's connected data sources."""
+    return {"suggestions": _copilot_suggestions_for_org(org)}
 
 
 @app.get("/api/v1/copilot/store-info")

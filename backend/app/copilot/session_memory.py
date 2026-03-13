@@ -132,6 +132,19 @@ class FirestoreSessionStore:
         except Exception as e:
             logger.warning("FirestoreSessionStore.append failed: %s", e, exc_info=True)
 
+    def update_title(self, organization_id: str, session_id: str, title: str) -> None:
+        """Set session title (e.g. after first response with a generated title)."""
+        if not title or not (organization_id or "").strip():
+            return
+        db = self._get_db()
+        if not db:
+            return
+        ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(session_id)
+        try:
+            ref.update({"title": (title or "").strip()[:SESSION_TITLE_MAX_LEN], "updated_at": time.time()})
+        except Exception as e:
+            logger.debug("FirestoreSessionStore.update_title failed: %s", e)
+
     def get_messages(
         self, organization_id: str, session_id: str, user_id: Optional[str] = None
     ) -> list[dict]:
@@ -314,6 +327,15 @@ class SessionMemoryStore:
 
     def set_context_summary(self, organization_id: str, session_id: str, summary: dict) -> None:
         self.get_or_create_session(organization_id, session_id).context_summary = summary
+
+    def update_title(self, organization_id: str, session_id: str, title: str) -> None:
+        """Set session title (e.g. after first response with a generated title)."""
+        if not title or not (organization_id or "").strip():
+            return
+        state = self._store.get(self._key(organization_id, session_id))
+        if state:
+            state.title = (title or "").strip()[:SESSION_TITLE_MAX_LEN]
+            state.updated_at = time.time()
 
     def get_context_summary(self, organization_id: str, session_id: str) -> Optional[dict]:
         state = self._store.get(self._key(organization_id, session_id))
