@@ -24,14 +24,23 @@ def _is_production() -> bool:
     return env in ("production", "prod")
 
 
+def _get_dev_api_key() -> Optional[str]:
+    """Dev API key from env only (no hardcoded value)."""
+    from ..config import get_dev_api_key
+    return get_dev_api_key()
+
+
 def _is_localhost_dev_key(request: Request) -> bool:
-    """True when X-API-Key=dev-local-secret (local dev only)."""
+    """True when X-API-Key matches the dev key from env (local dev only)."""
+    dev_key = _get_dev_api_key()
+    if not dev_key:
+        return False
     req_key = (request.headers.get("X-API-Key") or "").strip()
-    return req_key == "dev-local-secret"
+    return req_key == dev_key
 
 
 def _is_dev_key_allowed(request: Request) -> bool:
-    """True when request uses dev-local-secret and we are not in production."""
+    """True when request uses the env-configured dev key and we are not in production."""
     return _is_localhost_dev_key(request) and not _is_production()
 
 

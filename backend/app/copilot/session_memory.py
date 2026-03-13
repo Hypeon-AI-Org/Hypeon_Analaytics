@@ -16,7 +16,7 @@ MAX_SESSIONS = 100
 MAX_SESSIONS_LIST = 50
 SESSION_TITLE_MAX_LEN = 50
 
-COPLIOT_SESSIONS_COLLECTION = "copilot_sessions"
+COPILOT_SESSIONS_COLLECTION = "copilot_sessions"
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class FirestoreSessionStore:
         title = None
         if role == "user" and content:
             title = (content or "").strip()[:SESSION_TITLE_MAX_LEN] or "New chat"
-        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(session_id)
         try:
             doc = ref.get()
             msg = _message_to_dict(role, content, meta)
@@ -138,7 +138,7 @@ class FirestoreSessionStore:
         db = self._get_db()
         if not db:
             return []
-        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(session_id)
         try:
             doc = ref.get()
             if not doc.exists:
@@ -175,7 +175,7 @@ class FirestoreSessionStore:
         uid = (user_id or "").strip() or None
         try:
             q = (
-                db.collection(COPLIOT_SESSIONS_COLLECTION)
+                db.collection(COPILOT_SESSIONS_COLLECTION)
                 .where("organization_id", "==", org)
                 .limit(MAX_SESSIONS_LIST + 50)
             )
@@ -214,7 +214,7 @@ class FirestoreSessionStore:
         db = self._get_db()
         if not db:
             return
-        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(session_id)
         try:
             ref.update({"context_summary": summary})
         except Exception as e:
@@ -224,7 +224,7 @@ class FirestoreSessionStore:
         db = self._get_db()
         if not db:
             return None
-        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(session_id)
         try:
             doc = ref.get()
             if not doc.exists:
@@ -243,7 +243,7 @@ class FirestoreSessionStore:
         db = self._get_db()
         if not db:
             return False
-        ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(session_id)
+        ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(session_id)
         try:
             doc = ref.get()
             if not doc.exists:

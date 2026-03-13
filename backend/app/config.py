@@ -65,6 +65,12 @@ def _load_api_key_from_env_file() -> str | None:
     return None
 
 
+def get_dev_api_key() -> str | None:
+    """Dev API key from env only. No hardcoded value; if unset, dev key auth is disabled (required in production)."""
+    v = (os.environ.get("DEV_API_KEY") or "").strip().replace("\r", "")
+    return v or None
+
+
 def get_api_key() -> str | None:
     v = os.environ.get("API_KEY")
     if not v or not isinstance(v, str):

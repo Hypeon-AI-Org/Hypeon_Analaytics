@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { copilotChat, copilotChatHistory, fetchCopilotSessions } from '../api'
+import { copilotChatStream, copilotChatHistory, fetchCopilotSessions } from '../api'
 import { useUserOrg } from '../contexts/UserOrgContext'
 import DynamicDashboardRenderer from './DynamicDashboardRenderer'
 import DashboardRendererErrorBoundary from './DashboardRendererErrorBoundary'
@@ -26,12 +26,15 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState(initialQuery || '')
   const [loading, setLoading] = useState(false)
+  const [streamStatus, setStreamStatus] = useState(null)
   const [error, setError] = useState(null)
   const [sessions, setSessions] = useState([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const sessionIdRef = useRef(null)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+  const streamingTextRef = useRef('')
+  const streamCancelRef = useRef(null)
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   useEffect(() => scrollToBottom(), [messages, loading])
@@ -104,26 +107,61 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', text }])
     setLoading(true)
-    try {
-      const res = await copilotChat({
-        message: text,
-        session_id: sessionIdRef.current || undefined,
-        client_id: selectedClientId,
-      })
-      if (res.session_id) {
-        sessionIdRef.current = res.session_id
-        sessionStorage.setItem(COPILOT_SESSION_KEY, res.session_id)
-        fetchCopilotSessions(organizationId).then((r) => setSessions(r.sessions || [])).catch((err) => setError(err?.message || 'Failed to refresh sessions'))
+    setStreamStatus('Thinking…')
+    streamingTextRef.current = ''
+    if (streamCancelRef.current?.cancel) streamCancelRef.current.cancel()
+    const { promise, cancel } = copilotChatStream(
+      { message: text, session_id: sessionIdRef.current || undefined, client_id: selectedClientId },
+      (ev) => {
+        if (ev.phase === 'thinking' || ev.phase === 'thinking_chunk') {
+          if (ev.phase === 'thinking') setStreamStatus(ev.message || 'Thinking…')
+        } else if (ev.phase === 'analyzing' || ev.phase === 'discovering' || ev.phase === 'generating_sql' || ev.phase === 'running_query' || ev.phase === 'formatting') {
+          setStreamStatus(ev.message || 'Processing…')
+        } else if (ev.phase === 'answer_chunk' && ev.chunk) {
+          streamingTextRef.current += ev.chunk
+          setStreamStatus(null)
+          setMessages((prev) => {
+            const last = prev[prev.length - 1]
+            if (last?.role === 'assistant' && last?.streaming) {
+              return [...prev.slice(0, -1), { ...last, text: streamingTextRef.current }]
+            }
+            return [...prev, { role: 'assistant', text: streamingTextRef.current, streaming: true }]
+          })
+        } else if (ev.phase === 'done') {
+          if (ev.session_id) {
+            sessionIdRef.current = ev.session_id
+            sessionStorage.setItem(COPILOT_SESSION_KEY, ev.session_id)
+            fetchCopilotSessions(organizationId).then((r) => setSessions(r.sessions || [])).catch((err) => setError(err?.message || 'Failed to refresh sessions'))
+          }
+          const finalText = ev.answer ?? streamingTextRef.current ?? ''
+          setMessages((prev) => {
+            const last = prev[prev.length - 1]
+            if (last?.role === 'assistant' && last?.streaming) {
+              return [...prev.slice(0, -1), { role: 'assistant', text: finalText, layout: ev.layout || null }]
+            }
+            return [...prev, { role: 'assistant', text: finalText, layout: ev.layout || null }]
+          })
+          setStreamStatus(null)
+          setLoading(false)
+        } else if (ev.phase === 'error') {
+          setError(ev.error || 'Something went wrong')
+          setMessages((prev) => [...prev, { role: 'assistant', text: '', error: ev.error }])
+          setStreamStatus(null)
+          setLoading(false)
+        }
       }
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: res.text || '', layout: res.layout || null },
-      ])
+    )
+    streamCancelRef.current = { cancel }
+    try {
+      await promise
     } catch (err) {
+      if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong')
       setMessages((prev) => [...prev, { role: 'assistant', text: '', error: err.message }])
-    } finally {
+      setStreamStatus(null)
       setLoading(false)
+    } finally {
+      streamCancelRef.current = null
     }
   }
 
@@ -250,7 +288,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
               <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" />
               <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" style={{ animationDelay: '150ms' }} />
               <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse" style={{ animationDelay: '300ms' }} />
-              <span className="text-sm text-slate-500 ml-1">Thinking…</span>
+              <span className="text-sm text-slate-500 ml-1">{streamStatus || 'Thinking…'}</span>
             </div>
           </div>
         )}

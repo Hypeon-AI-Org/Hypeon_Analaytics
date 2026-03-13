@@ -40,7 +40,7 @@ def main():
     try:
         from backend.app.auth.firebase import init_firebase
         from backend.app.auth.firestore_user import _get_firestore
-        from backend.app.copilot.session_memory import COPLIOT_SESSIONS_COLLECTION
+        from backend.app.copilot.session_memory import COPILOT_SESSIONS_COLLECTION
     except Exception as e:
         print("Import failed:", e)
         return 1
@@ -51,7 +51,7 @@ def main():
         print("Firestore not available")
         return 1
 
-    col = db.collection(COPLIOT_SESSIONS_COLLECTION)
+    col = db.collection(COPILOT_SESSIONS_COLLECTION)
     updated = 0
     for doc in col.stream():
         d = doc.to_dict() or {}

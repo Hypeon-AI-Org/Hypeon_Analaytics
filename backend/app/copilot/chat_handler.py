@@ -100,6 +100,53 @@ def _datasets_used_in_sql(sql: str) -> Set[str]:
     return used
 
 
+def _tables_referenced_in_sql(sql: str) -> Set[tuple]:
+    """Extract (project, dataset, table) triples from SQL. Backtick `p.d.t` and unquoted identifiers. Lowercase."""
+    if not sql or not isinstance(sql, str):
+        return set()
+    out: Set[tuple] = set()
+    # Backtick-quoted: `project.dataset.table` or `dataset.table`
+    for name in re.findall(r"`([^`]+)`", sql):
+        parts = [p.strip().lower() for p in name.split(".") if p.strip()]
+        if len(parts) == 3:
+            out.add((parts[0], parts[1], parts[2]))
+        elif len(parts) == 2:
+            out.add(("", parts[0], parts[1]))
+    # Unquoted: project.dataset.table
+    for m in re.finditer(r"\b(\w+)\.(\w+)\.(\w+)\b", sql, re.IGNORECASE):
+        out.add((m.group(1).lower(), m.group(2).lower(), m.group(3).lower()))
+    return out
+
+
+def _sql_references_only_allowed_tables(sql: str, organization_id: str) -> bool:
+    """True iff every project.dataset.table reference in sql is in the org's allowed set. Tenant isolation guard."""
+    if not (organization_id or "").strip():
+        return False
+    try:
+        from .schema_cache_firestore import get_allowed_tables_set
+        allowed = get_allowed_tables_set(organization_id)
+    except Exception:
+        return False
+    if not allowed:
+        return False
+    referenced = _tables_referenced_in_sql(sql)
+    for triple in referenced:
+        # (project, dataset, table) — allowed set uses (project, dataset, table) lowercase
+        if triple in allowed:
+            continue
+        # Allow ( "", dataset, table ) to match any project in allowed for that dataset.table
+        if triple[0] == "":
+            if any((a[1], a[2]) == (triple[1], triple[2]) for a in allowed):
+                continue
+        logger.warning(
+            "Copilot tenant isolation: SQL references table %s not in allowed set for org=%s",
+            triple,
+            organization_id,
+        )
+        return False
+    return True
+
+
 def _expand_candidates_with_other_datasets(
     candidates: List[dict],
     failed_sql: str,
@@ -654,6 +701,10 @@ def chat(
             previous_error = "LLM did not return a valid SQL query."
             logger.warning("Copilot LLM returned no SQL on attempt %s (check for 'no SQL could be extracted' above)", attempt)
             continue
+        if not _sql_references_only_allowed_tables(sql_used, organization_id or ""):
+            previous_error = "Generated SQL references tables outside this organization; rejected for tenant isolation."
+            logger.warning("Copilot tenant isolation rejected SQL on attempt %s for org=%s", attempt, organization_id)
+            continue
         tables_tried.append(sql_used[:500])
         try:
             out = run_bigquery_sql(sql_used, organization_id=organization_id, client_id=cid)
@@ -901,6 +952,10 @@ def chat_stream(
             if not sql_used:
                 previous_error = "LLM did not return a valid SQL query."
                 logger.warning("Copilot LLM returned no SQL on attempt %s (check above for 'no SQL could be extracted' if LLM returned text)", attempt)
+                continue
+            if not _sql_references_only_allowed_tables(sql_used, organization_id or ""):
+                previous_error = "Generated SQL references tables outside this organization; rejected for tenant isolation."
+                logger.warning("Copilot tenant isolation rejected SQL on attempt %s for org=%s", attempt, organization_id)
                 continue
             tables_tried.append(sql_used[:500])
             yield {"phase": "running_query", "message": "Running query in BigQuery…", "sql_preview": (sql_used if sql_used else None), "detail_kind": "sql"}

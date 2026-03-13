@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     import os
-    os.environ.setdefault("API_KEY", "test-key")
+    os.environ["API_KEY"] = "test-key"
     from backend.app.main import app
     return TestClient(app)
 
@@ -26,7 +26,9 @@ def test_health(client):
 
 
 def test_insights_mocked_bq(client):
-    with patch("backend.app.main._list_insights_scoped", return_value=[]):
+    with patch("backend.app.main._list_insights_scoped", return_value=[]), patch(
+        "backend.app.main.get_api_key", return_value="test-key"
+    ):
         r = client.get("/insights", headers={"X-API-Key": "test-key", "X-Organization-Id": "test-org"})
     assert r.status_code == 200
     assert "items" in r.json()
@@ -96,6 +98,18 @@ def test_copilot_sessions_and_history_display_from_store(client):
     assert len(hist["messages"]) >= 2
     roles = [m.get("role") for m in hist["messages"]]
     assert "user" in roles and "assistant" in roles
+
+
+def test_dev_key_rejected_in_production(client):
+    """When ENV is production, dev API key must be rejected (no hardcoded secret accepted)."""
+    with patch("backend.app.auth.request_auth._is_production", return_value=True), patch(
+        "backend.app.config.get_dev_api_key", return_value="dev-from-env"
+    ):
+        r = client.get(
+            "/insights",
+            headers={"X-API-Key": "dev-from-env", "X-Organization-Id": "test-org"},
+        )
+    assert r.status_code == 401
 
 
 @pytest.mark.skip(reason="Endpoint /simulate_budget_shift not implemented in main.py")

@@ -40,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .config import get_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
+from .config import get_api_key, get_dev_api_key, get_bq_project, get_analytics_dataset, get_cors_origins
 from .auth import (
     get_organization,
     get_organization_id,
@@ -211,17 +211,17 @@ def get_role_from_token(request: Request) -> str:
     return auth_get_role(request, get_api_key)
 
 
-# Dev key only when ENV is not production (see is_dev_key_allowed). Production must set API_KEY.
-DEV_API_KEY = "dev-local-secret"
+# Dev key from env only (get_dev_api_key). No hardcoded secret; production must set API_KEY.
 
 
 def _has_any_auth(request: Request) -> bool:
-    """True if request has valid API key or Bearer token. In production, dev-local-secret is rejected."""
+    """True if request has valid API key or Bearer token. Dev key only accepted when set in env and is_dev_key_allowed."""
     api_key = get_api_key()
     req_key = (request.headers.get("X-API-Key") or "").strip().replace("\r", "")
     if api_key and req_key and (api_key.strip().replace("\r", "") == req_key):
         return True
-    if req_key == DEV_API_KEY and is_dev_key_allowed(request):
+    dev_key = get_dev_api_key()
+    if dev_key and req_key == dev_key and is_dev_key_allowed(request):
         return True
     if (request.headers.get("Authorization") or "").strip().startswith("Bearer "):
         return True
@@ -322,19 +322,29 @@ def _top_insights_scoped(organization_id: str, client_id: Optional[int], top_n: 
 
 
 def _update_insight_status(insight_id: str, organization_id: str, status: str, user_id: Optional[str]) -> None:
+    from google.cloud import bigquery
     from .clients.bigquery import get_client, get_analytics_dataset
     client = get_client()
     project = get_bq_project()
     dataset = get_analytics_dataset()
-    user = (user_id or "unknown").replace("'", "''")
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    q = f"""
+    user = user_id or "unknown"
+    query = f"""
     UPDATE `{project}.{dataset}.analytics_insights`
-    SET status = '{status}', applied_at = CURRENT_TIMESTAMP(), history = CONCAT(COALESCE(history, ''), '; applied_by={user} at {now}')
-    WHERE insight_id = '{insight_id.replace("'", "''")}' AND organization_id = '{organization_id.replace("'", "''")}'
+    SET status = @status, applied_at = CURRENT_TIMESTAMP(), history = CONCAT(COALESCE(history, ''), '; applied_by=', @user, ' at ', @now)
+    WHERE insight_id = @insight_id AND organization_id = @organization_id
     """
-    client.query(q).result()
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("status", "STRING", status),
+            bigquery.ScalarQueryParameter("user", "STRING", user),
+            bigquery.ScalarQueryParameter("now", "STRING", now),
+            bigquery.ScalarQueryParameter("insight_id", "STRING", insight_id),
+            bigquery.ScalarQueryParameter("organization_id", "STRING", organization_id),
+        ]
+    )
+    client.query(query, job_config=job_config).result()
 
 
 # ----- Endpoints -----

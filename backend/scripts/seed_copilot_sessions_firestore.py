@@ -29,7 +29,7 @@ def main():
     try:
         from backend.app.auth.firebase import init_firebase
         from backend.app.auth.firestore_user import _get_firestore
-        from backend.app.copilot.session_memory import COPLIOT_SESSIONS_COLLECTION
+        from backend.app.copilot.session_memory import COPILOT_SESSIONS_COLLECTION
     except Exception as e:
         print("Import failed:", e)
         return 1
@@ -45,7 +45,7 @@ def main():
 
     db_id = os.environ.get("FIRESTORE_DATABASE_ID") or "(default)"
     doc_id = "seed-session-%d" % int(time.time())
-    ref = db.collection(COPLIOT_SESSIONS_COLLECTION).document(doc_id)
+    ref = db.collection(COPILOT_SESSIONS_COLLECTION).document(doc_id)
     ref.set({
         "organization_id": "org_test",
         "title": "Seed document — copilot_sessions collection",
@@ -55,7 +55,7 @@ def main():
             {"role": "assistant", "content": "This document was created by seed_copilot_sessions_firestore.py so the collection appears in Firebase Console."},
         ],
     })
-    print("Created document: %s/%s" % (COPLIOT_SESSIONS_COLLECTION, doc_id))
+    print("Created document: %s/%s" % (COPILOT_SESSIONS_COLLECTION, doc_id))
     print("Database: %s" % db_id)
     print("In Firebase Console: Build > Firestore Database > Data")
     if db_id != "(default)":
