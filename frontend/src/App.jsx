@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { UserOrgProvider, useUserOrg } from './contexts/UserOrgContext'
 import Layout from './Layout'
 import DashboardOverview from './pages/DashboardOverview'
+import ExplorePage from './pages/ExplorePage'
 import CampaignPage from './pages/CampaignPage'
 import FunnelPage from './pages/FunnelPage'
 import ActionCenterPage from './pages/ActionCenterPage'
@@ -17,15 +18,53 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import ForgotPassword from './pages/ForgotPassword'
 
+/** Top-level error boundary: catches uncaught render errors and shows a fallback with retry. */
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('App error boundary:', error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6" role="alert">
+          <div className="rounded-xl border border-slate-200 bg-white p-8 max-w-md text-center shadow-sm">
+            <p className="font-medium text-slate-800">Something went wrong</p>
+            <p className="mt-2 text-sm text-slate-600">An unexpected error occurred. You can try again or refresh the page.</p>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false })}
+              className="mt-4 px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-700 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 const PAGE_TITLES = {
+  '/dashboard': 'Dashboard',
+  '/explore': 'Explore data',
   '/campaigns': 'Campaigns',
-  '/google-ads': 'Google Ads Analysis',
+  '/google-ads': 'Google Ads',
   '/google-analytics': 'Google Analytics',
   '/funnel': 'Funnel',
-  '/actions': 'Action Center',
+  '/actions': 'Actions',
   '/insights': 'Insights',
   '/copilot': 'Copilot',
-  '/dashboard': 'Dashboard',
   '/': 'Copilot',
 }
 
@@ -156,6 +195,7 @@ function MainContent({ openCopilotForInsight }) {
         <Routes>
           <Route path="/" element={<Navigate to="/copilot" replace />} />
           <Route path="/dashboard" element={<DashboardOverview />} />
+          <Route path="/explore" element={<ExplorePage />} />
           <Route path="/campaigns" element={<CampaignPage />} />
           <Route path="/google-ads" element={<GoogleAdsPage />} />
           <Route path="/google-analytics" element={<GoogleAnalyticsPage />} />
@@ -189,29 +229,31 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <UserOrgProvider>
-                  <Layout>
-                    <MainContent openCopilotForInsight={openCopilotForInsight} />
-                  </Layout>
-                  <CopilotPanel
-                  open={copilotOpen}
-                  onClose={() => setCopilotOpen(false)}
-                  initialQuery={copilotQuery}
-                    explainInsightId={explainInsightId}
-                  />
-                </UserOrgProvider>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+        <AppErrorBoundary>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <UserOrgProvider>
+                    <Layout>
+                      <MainContent openCopilotForInsight={openCopilotForInsight} />
+                    </Layout>
+                    <CopilotPanel
+                    open={copilotOpen}
+                    onClose={() => setCopilotOpen(false)}
+                    initialQuery={copilotQuery}
+                      explainInsightId={explainInsightId}
+                    />
+                  </UserOrgProvider>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </AppErrorBoundary>
       </AuthProvider>
     </BrowserRouter>
   )

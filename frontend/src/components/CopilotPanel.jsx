@@ -59,14 +59,20 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
           }))
         )
       })
-      .catch(() => setMessages([]))
+      .catch((err) => {
+        setMessages([])
+        setError(err?.message || 'Failed to load session')
+      })
   }
 
   useEffect(() => {
     if (!open) return
     fetchCopilotSessions(organizationId)
       .then((r) => setSessions(r.sessions || []))
-      .catch(() => setSessions([]))
+      .catch((err) => {
+        setSessions([])
+        setError(err?.message || 'Failed to load sessions')
+      })
     const stored = sessionStorage.getItem(COPILOT_SESSION_KEY)
     if (stored) {
       sessionIdRef.current = stored
@@ -83,7 +89,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
             )
           }
         })
-        .catch(() => {})
+        .catch((err) => setError(err?.message || 'Failed to load history'))
     } else {
       sessionIdRef.current = null
       setMessages([])
@@ -107,7 +113,7 @@ export default function CopilotPanel({ open, onClose, initialQuery = '', explain
       if (res.session_id) {
         sessionIdRef.current = res.session_id
         sessionStorage.setItem(COPILOT_SESSION_KEY, res.session_id)
-        fetchCopilotSessions(organizationId).then((r) => setSessions(r.sessions || [])).catch(() => {})
+        fetchCopilotSessions(organizationId).then((r) => setSessions(r.sessions || [])).catch((err) => setError(err?.message || 'Failed to refresh sessions'))
       }
       setMessages((prev) => [
         ...prev,

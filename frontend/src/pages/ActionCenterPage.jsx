@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Zap } from 'lucide-react'
 import { fetchActions, applyRecommendation } from '../api'
 import ErrorBanner from '../components/ErrorBanner'
 import PageReportHeader from '../components/PageReportHeader'
@@ -59,22 +60,32 @@ export default function ActionCenterPage({ onExplain }) {
   const items = data.items || []
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/70">
       <PageReportHeader days={30} onExport={() => {}} />
-      <p className="text-sm text-slate-600">Top actions from insights. Approve applies the recommendation; Ignore dismisses.</p>
+      <p className="text-sm text-slate-600">Recommended actions from your insights. Approve to apply or ignore to dismiss.</p>
       {loading && items.length === 0 ? (
-        <div className="animate-pulse rounded-xl bg-slate-100 h-48" />
+        <div className="animate-pulse rounded-xl bg-slate-200 h-48" />
       ) : items.length === 0 ? (
-        <div className="glass-card p-8 text-center">
-          <p className="text-slate-600 font-medium">No recommended actions right now</p>
-          <p className="mt-1 text-sm text-slate-500">When we have new insights, they will appear here. You can also check Insights for the full list.</p>
-          <button
-            type="button"
-            onClick={() => navigate('/insights')}
-            className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            View Insights
-          </button>
+        <div className="glass-card p-10 text-center max-w-lg mx-auto">
+          <Zap className="mx-auto text-slate-300" size={40} strokeWidth={1.5} />
+          <p className="mt-3 text-slate-700 font-medium">No recommended actions right now</p>
+          <p className="mt-1 text-sm text-slate-500">When we have new insights, they’ll appear here. Check Insights or ask Copilot for analysis.</p>
+          <div className="mt-6 flex flex-wrap gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => navigate('/insights')}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              View Insights
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/copilot')}
+              className="rounded-lg bg-slate-800 text-white px-4 py-2 text-sm font-medium hover:bg-slate-700 transition-colors"
+            >
+              Open Copilot
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid gap-4">

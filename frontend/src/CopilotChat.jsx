@@ -49,6 +49,24 @@ function userDisplayName(user) {
 
 const COPILOT_SESSION_KEY = 'hypeon_copilot_session_id'
 
+/** Split steps into reasoning (model's thought process) and pipeline (discovering, SQL, run, format). */
+function splitThinkingSteps(steps) {
+  if (!steps?.length) return { reasoningSteps: [], pipelineSteps: [] }
+  const reasoningSteps = steps.filter((s) => s.stepKind === 'reasoning' || s.step === 'Thinking…')
+  const pipelineSteps = steps.filter((s) => s.stepKind !== 'reasoning' && s.step !== 'Thinking…')
+  return { reasoningSteps, pipelineSteps }
+}
+
+/** Parse reasoning text into list items (lines or bullets) for clearer display. */
+function parseReasoningToList(detail) {
+  if (!detail || typeof detail !== 'string') return []
+  const lines = detail
+    .split(/\n+/)
+    .map((l) => l.replace(/^[\s•\-*]+\s*/, '').trim())
+    .filter(Boolean)
+  return lines.length ? lines : (detail.trim() ? [detail.trim()] : [])
+}
+
 /** Sidebar logo: put your image at frontend/public/logo.png (or .svg and use /logo.svg). Falls back to default if missing. */
 const SIDEBAR_LOGO = '/images/hypeon.png'
 
@@ -422,8 +440,8 @@ export default function CopilotChat() {
       (ev) => {
         if (ev.phase === 'thinking') {
           if (!thinkingStartTimeRef.current) thinkingStartTimeRef.current = Date.now()
-          setStreamStatus(ev.message || 'Thinking…')
-          const stepEntry = { step: ev.message || 'Thinking…', detail: ev.detail ?? '', detailKind: ev.detail_kind ?? 'text' }
+          setStreamStatus(ev.message || 'Reasoning…')
+          const stepEntry = { step: ev.message || 'Thinking…', detail: ev.detail ?? '', detailKind: ev.detail_kind ?? 'text', stepKind: ev.step_kind || 'reasoning' }
           thinkingStepsRef.current = [...thinkingStepsRef.current, stepEntry]
           setCurrentThinkingSteps(thinkingStepsRef.current)
         } else if (ev.phase === 'thinking_chunk' && ev.chunk) {
@@ -439,7 +457,7 @@ export default function CopilotChat() {
           setStreamStatus(ev.message || 'Processing…')
           const detail = ev.sql_preview ?? ev.detail ?? (ev.tables_count != null ? `Found ${ev.tables_count} tables` : null)
           const detailKind = ev.detail_kind ?? 'text'
-          const stepEntry = { step: ev.message || 'Processing…', detail, detailKind }
+          const stepEntry = { step: ev.message || 'Processing…', detail, detailKind, stepKind: 'pipeline' }
           thinkingStepsRef.current = [...thinkingStepsRef.current, stepEntry]
           setCurrentThinkingSteps(thinkingStepsRef.current)
         } else if (ev.phase === 'answer_chunk' && ev.chunk) {
@@ -779,37 +797,77 @@ export default function CopilotChat() {
                         const isStreamingMsg = idx === messages.length - 1 && msg.role === 'assistant' && (msg.streaming || loading)
                         const steps = msg.thinkingSteps ?? (isStreamingMsg ? currentThinkingSteps : null)
                         const minimized = msg.thinkingMinimized ?? (isStreamingMsg ? streamThinkingMinimized : true)
-                        const isExpanded = expandedThinkingMsgId === idx || !minimized
                         const durationSec = msg.thinkingDurationSec ?? (isStreamingMsg ? thinkingElapsedSec : null)
                         if (!steps || steps.length === 0) return null
-                        const headerLabel = durationSec != null ? `Thought for ${durationSec}s` : 'Thought'
+                        const { reasoningSteps, pipelineSteps } = splitThinkingSteps(steps)
+                        const hasReasoning = reasoningSteps.length > 0
+                        const hasPipeline = pipelineSteps.length > 0
+                        const isSectionExpanded = (isStreamingMsg && !minimized) || expandedThinkingMsgId === idx
                         return (
                           <div className="mb-3">
                             <button
                               type="button"
                               onClick={() => setExpandedThinkingMsgId((prev) => (prev === idx ? null : idx))}
                               className="w-full flex items-center justify-between gap-2 text-left py-2 px-0 min-h-0 rounded-none border-0 bg-transparent hover:bg-slate-50/50 transition-colors"
-                              aria-expanded={isExpanded}
+                              aria-expanded={isSectionExpanded}
                             >
-                              <span className="text-xs font-medium text-slate-600">{headerLabel}</span>
-                              <span className="shrink-0 text-slate-400 transition-transform duration-150" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }} aria-hidden>&gt;</span>
+                              <span className="text-xs font-medium text-slate-600">
+                                {durationSec != null ? `Thought (${durationSec}s)` : 'Thought'}
+                              </span>
+                              <span className="shrink-0 text-slate-400 transition-transform duration-150" style={{ transform: isSectionExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }} aria-hidden>&gt;</span>
                             </button>
-                            {isExpanded && (
-                              <div className="mt-1.5 pl-2 space-y-2 border-l-2 border-slate-200/60">
-                                {steps.map((s, i) => (
-                                  <div key={i} className="text-xs">
-                                    <p className="font-medium text-slate-600">{s.step}</p>
-                                    {s.detail && (
-                                      s.detailKind === 'sql'
-                                        ? <pre className="mt-1 p-2 rounded bg-slate-100 text-slate-700 overflow-x-auto text-[11px] whitespace-pre-wrap break-all font-mono">{s.detail}</pre>
-                                        : (
-                                            <div className="mt-1 p-2 rounded bg-slate-50/80 text-slate-600 text-xs prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:font-semibold prose-strong:text-slate-700">
-                                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.detail}</ReactMarkdown>
-                                            </div>
-                                          )
-                                    )}
+                            {isSectionExpanded && (
+                              <div className="mt-1.5 space-y-3 pl-2 border-l-2 border-slate-200/60">
+                                {hasReasoning && (
+                                  <div>
+                                    <p className="text-xs font-medium text-slate-500 mb-1.5">Reasoning</p>
+                                    {reasoningSteps.map((s, i) => {
+                                      const items = parseReasoningToList(s.detail)
+                                      if (items.length > 0) {
+                                        return (
+                                          <ul key={i} className="text-xs text-slate-600 space-y-1 list-disc list-inside mt-1">
+                                            {items.map((line, j) => (
+                                              <li key={j} className="leading-relaxed">
+                                                <span className="prose prose-sm max-w-none prose-p:my-0 prose-ul:my-0 prose-li:my-0">
+                                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
+                                                </span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )
+                                      }
+                                      if (s.detail?.trim()) {
+                                        return (
+                                          <div key={i} className="mt-1 p-2 rounded bg-slate-50/80 text-slate-600 text-xs prose prose-sm max-w-none">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.detail}</ReactMarkdown>
+                                          </div>
+                                        )
+                                      }
+                                      return null
+                                    })}
                                   </div>
-                                ))}
+                                )}
+                                {hasPipeline && (
+                                  <div>
+                                    <p className="text-xs font-medium text-slate-500 mb-1.5">Steps</p>
+                                    <div className="space-y-2">
+                                      {pipelineSteps.map((s, i) => (
+                                        <div key={i} className="text-xs">
+                                          <p className="font-medium text-slate-600">{s.step}</p>
+                                          {s.detail && (
+                                            s.detailKind === 'sql'
+                                              ? <pre className="mt-1 p-2 rounded bg-slate-100 text-slate-700 overflow-x-auto text-[11px] whitespace-pre-wrap break-all font-mono">{s.detail}</pre>
+                                              : (
+                                                  <div className="mt-1 p-2 rounded bg-slate-50/80 text-slate-600 text-xs prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:font-semibold prose-strong:text-slate-700">
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.detail}</ReactMarkdown>
+                                                  </div>
+                                                )
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -906,38 +964,82 @@ export default function CopilotChat() {
             ))}
 
             {loading && (
-              <div className="flex justify-start mb-6 animate-copilot-fade-in flex flex-col gap-2">
+              <div className="flex justify-start mb-6 animate-copilot-fade-in flex flex-col gap-3">
                 <div className="rounded-2xl px-4 py-3 flex items-center gap-3 min-w-[200px] bg-transparent">
                   <span className="flex gap-1 shrink-0">
                     <span className="inline-block w-2 h-2 rounded-full bg-slate-500 animate-pulse" />
                     <span className="inline-block w-2 h-2 rounded-full bg-slate-500 animate-pulse" style={{ animationDelay: '150ms' }} />
                     <span className="inline-block w-2 h-2 rounded-full bg-slate-500 animate-pulse" style={{ animationDelay: '300ms' }} />
                   </span>
-                  <span className="text-sm text-slate-600 font-medium">{streamStatus || 'Thinking…'}</span>
+                  <span className="text-sm text-slate-600 font-medium">{streamStatus || 'Reasoning…'}</span>
                 </div>
-                {currentThinkingSteps.length > 0 && !streamThinkingMinimized && (
-                  <div className="rounded-2xl px-4 py-3 max-w-full bg-transparent">
-                    <p className="text-xs font-medium text-slate-600 mb-2">
-                      {thinkingElapsedSec != null ? `Thought for ${thinkingElapsedSec}s` : 'Thought'}
-                    </p>
-                    <div className="space-y-2 pl-2 border-l-2 border-slate-200/60">
-                      {currentThinkingSteps.map((s, i) => (
-                        <div key={i} className="text-xs">
-                          <p className="font-medium text-slate-600">{s.step}</p>
-                          {s.detail && (
-                            s.detailKind === 'sql'
-                              ? <pre className="mt-1 p-2 rounded bg-slate-100 text-slate-700 overflow-x-auto text-[11px] whitespace-pre-wrap break-all font-mono">{s.detail}</pre>
-                              : (
-                                  <div className="mt-1 p-2 rounded bg-slate-50 text-slate-600 text-xs prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:font-semibold prose-strong:text-slate-700">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.detail}</ReactMarkdown>
-                                  </div>
+                {currentThinkingSteps.length > 0 && !streamThinkingMinimized && (() => {
+                  const { reasoningSteps, pipelineSteps } = splitThinkingSteps(currentThinkingSteps)
+                  return (
+                    <div className="rounded-2xl px-4 py-3 max-w-full bg-transparent space-y-3">
+                      {reasoningSteps.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-600 mb-2">
+                            {thinkingElapsedSec != null ? `Reasoning (${thinkingElapsedSec}s)` : 'Reasoning'}
+                          </p>
+                          <div className="pl-2 border-l-2 border-slate-200/60">
+                            {reasoningSteps.map((s, i) => {
+                              const items = parseReasoningToList(s.detail)
+                              if (items.length > 0) {
+                                return (
+                                  <ul key={i} className="text-xs text-slate-600 space-y-1 list-disc list-inside mt-1">
+                                    {items.map((line, j) => (
+                                      <li key={j} className="leading-relaxed">
+                                        <span className="prose prose-sm max-w-none prose-p:my-0 prose-ul:my-0 prose-li:my-0">
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
                                 )
-                          )}
+                              }
+                              return (
+                                <div key={i} className="mt-1 text-xs text-slate-600">
+                                  {s.detail?.trim() ? (
+                                    <div className="rounded bg-slate-50/80 p-2">
+                                      <span className="inline-block animate-pulse">▌</span>
+                                      <span className="prose prose-sm max-w-none prose-p:my-0">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.detail}</ReactMarkdown>
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400 italic">Thinking…</span>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
                         </div>
-                      ))}
+                      )}
+                      {pipelineSteps.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1.5">Steps</p>
+                          <div className="pl-2 space-y-2 border-l-2 border-slate-200/60">
+                            {pipelineSteps.map((s, i) => (
+                              <div key={i} className="text-xs">
+                                <p className="font-medium text-slate-600">{s.step}</p>
+                                {s.detail && (
+                                  s.detailKind === 'sql'
+                                    ? <pre className="mt-1 p-2 rounded bg-slate-100 text-slate-700 overflow-x-auto text-[11px] whitespace-pre-wrap break-all font-mono">{s.detail}</pre>
+                                    : (
+                                        <div className="mt-1 p-2 rounded bg-slate-50/80 text-slate-600 text-xs prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:font-semibold prose-strong:text-slate-700">
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.detail}</ReactMarkdown>
+                                        </div>
+                                      )
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             )}
             <div ref={messagesEndRef} />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp,
   TrendingDown,
@@ -7,7 +8,7 @@ import {
   ShoppingCart,
   LineChart as LineChartIcon,
   Search,
-  Filter as FilterIcon,
+  Sparkles,
 } from 'lucide-react'
 import {
   LineChart,
@@ -21,8 +22,6 @@ import {
 } from 'recharts'
 import { fetchBusinessOverview, fetchCampaignPerformance, copilotChat } from '../api'
 import { useUserOrg } from '../contexts/UserOrgContext'
-import DynamicDashboardRenderer from '../components/DynamicDashboardRenderer'
-import DashboardRendererErrorBoundary from '../components/DashboardRendererErrorBoundary'
 import ErrorBanner from '../components/ErrorBanner'
 import CampaignTable from '../components/CampaignTable'
 import PageReportHeader from '../components/PageReportHeader'
@@ -54,15 +53,16 @@ function useDailyTrend(total, days = 30) {
 }
 
 export default function DashboardHome() {
+  const navigate = useNavigate()
   const { selectedClientId } = useUserOrg()
   const [overview, setOverview] = useState(null)
   const [campaigns, setCampaigns] = useState({ items: [] })
   const [campaignFilter, setCampaignFilter] = useState('')
   const [copilotSummary, setCopilotSummary] = useState(null)
-  const [copilotLayout, setCopilotLayout] = useState(null)
   const [loading, setLoading] = useState(true)
   const [campaignsLoading, setCampaignsLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [campaignError, setCampaignError] = useState(null)
   const [copilotLoading, setCopilotLoading] = useState(false)
   const [copilotError, setCopilotError] = useState(null)
 
@@ -84,19 +84,26 @@ export default function DashboardHome() {
     loadOverview()
   }, [selectedClientId])
 
-  useEffect(() => {
+  const loadCampaigns = () => {
     setCampaignsLoading(true)
+    setCampaignError(null)
     fetchCampaignPerformance({ client_id: selectedClientId })
       .then((data) => {
         setCampaigns(data)
         setCampaignsLoading(false)
       })
-      .catch(() => setCampaignsLoading(false))
+      .catch((err) => {
+        setCampaignError(err?.message || 'Failed to load campaigns')
+        setCampaignsLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    loadCampaigns()
   }, [selectedClientId])
 
   const askCopilot = () => {
     setCopilotSummary(null)
-    setCopilotLayout(null)
     setCopilotError(null)
     setCopilotLoading(true)
     copilotChat({ message: 'How am I performing?', client_id: selectedClientId })
@@ -156,12 +163,12 @@ export default function DashboardHome() {
   const spPct = (spTrendNum * 100).toFixed(1)
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-white">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/70">
       <PageReportHeader days={30} onExport={() => {}} />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative hover:shadow-md transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <LineChartIcon size={20} strokeWidth={2} />
           </div>
@@ -174,7 +181,7 @@ export default function DashboardHome() {
             {revTrend > 0 ? `+${revPct}%` : revTrend < 0 ? `${revPct}%` : '0.0%'} vs. previous period
           </p>
         </div>
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative hover:shadow-md transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <Wallet size={20} strokeWidth={2} />
           </div>
@@ -187,16 +194,14 @@ export default function DashboardHome() {
             {spTrendNum > 0 ? `+${spPct}%` : spTrendNum < 0 ? `${spPct}%` : '0.0%'} vs. previous period
           </p>
         </div>
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative hover:shadow-md transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <Star size={20} strokeWidth={2} />
           </div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Blended ROAS</p>
           <p className="mt-1 text-2xl font-bold text-slate-800">{typeof roas === 'number' ? `${roas.toFixed(2)}x` : roas}</p>
-          <p className="mt-1 text-xs text-slate-500">Target: 5.50x</p>
-          <p className={`mt-0.5 flex items-center gap-1 text-xs font-medium text-emerald-600`}>+4.1%</p>
         </div>
-        <div className="glass-card p-5 relative">
+        <div className="glass-card p-5 relative hover:shadow-md transition-shadow">
           <div className="absolute top-4 right-4 text-slate-400">
             <ShoppingCart size={20} strokeWidth={2} />
           </div>
@@ -204,8 +209,6 @@ export default function DashboardHome() {
           <p className="mt-1 text-2xl font-bold text-slate-800">
             {typeof cr === 'number' ? `${(cr * 100).toFixed(2)}%` : cr}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Average: 0.52%</p>
-          <p className="mt-0.5 text-xs font-medium text-slate-500">0.0%</p>
         </div>
       </div>
 
@@ -256,48 +259,53 @@ export default function DashboardHome() {
       {/* Campaign Performance */}
       <div>
         <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3">Campaign Performance</h3>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} strokeWidth={2} />
-            <input
-              type="text"
-              placeholder="Filter campaigns..."
-              value={campaignFilter}
-              onChange={(e) => setCampaignFilter(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-            />
-          </div>
-          <button type="button" aria-label="Filter" className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">
-            <FilterIcon size={18} strokeWidth={2} />
-          </button>
+        <div className="relative max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} strokeWidth={2} />
+          <input
+            type="text"
+            placeholder="Filter campaigns..."
+            value={campaignFilter}
+            onChange={(e) => setCampaignFilter(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+            aria-label="Filter campaigns"
+          />
         </div>
+        {campaignError && (
+          <ErrorBanner message={campaignError} onRetry={loadCampaigns} className="mb-3" />
+        )}
         <CampaignTable items={filteredCampaigns} loading={campaignsLoading} />
       </div>
 
-      {copilotLayout && (
-        <DashboardRendererErrorBoundary>
-          <DynamicDashboardRenderer layout={copilotLayout} />
-        </DashboardRendererErrorBoundary>
-      )}
-
-      <div className="glass-card p-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Copilot summary</h3>
-          <button
-            type="button"
-            onClick={askCopilot}
-            disabled={copilotLoading}
-            className="text-sm font-medium text-slate-700 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {copilotLoading ? 'Loading…' : 'Ask Copilot: How am I performing?'}
-          </button>
+      <div className="glass-card p-5 border-l-4 border-l-orange-500">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="text-orange-500" size={20} strokeWidth={2} />
+            <h3 className="text-sm font-semibold text-slate-800">AI summary</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={askCopilot}
+              disabled={copilotLoading}
+              className="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {copilotLoading ? 'Loading…' : 'Ask: How am I performing?'}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/copilot')}
+              className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors"
+            >
+              Open Copilot
+            </button>
+          </div>
         </div>
         {copilotError && (
           <ErrorBanner message={copilotError} onRetry={askCopilot} className="mt-3" />
         )}
-        {copilotSummary && <p className="mt-2 text-slate-600">{copilotSummary}</p>}
+        {copilotSummary && <p className="mt-3 text-slate-600 text-sm leading-relaxed">{copilotSummary}</p>}
         {!copilotSummary && !copilotLoading && !copilotError && (
-          <p className="mt-2 text-slate-500 text-sm">Click the button above to get a short performance summary from Copilot.</p>
+          <p className="mt-3 text-slate-500 text-sm">Get a short performance summary or open Copilot to ask questions about your data.</p>
         )}
       </div>
     </div>

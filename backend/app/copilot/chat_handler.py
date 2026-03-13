@@ -370,9 +370,9 @@ def _stream_llm_thinking(
     context_str = " ".join(context_parts) if context_parts else "Schema and tables will be used for the query."
     system = (
         "You are an analytics assistant. Think step by step out loud: what the user is asking for, which data sources or tables are relevant, and how you would answer. "
-        "Be concise. Output only your reasoning; no SQL, no code blocks. This is for the user to see your thought process."
+        "Be concise. Output one short thought per line; use - or • for bullets. No SQL, no code blocks. This is for the user to see your thought process."
     )
-    user_content = f"User question: {message.strip()}\n\nContext: {context_str}\n\nThink out loud:"
+    user_content = f"User question: {message.strip()}\n\nContext: {context_str}\n\nThink out loud (one thought per line):"
     combined = f"{system}\n\n---\n\n{user_content}"
     try:
         from ..llm_claude import is_claude_configured, stream_claude
@@ -868,7 +868,7 @@ def chat_stream(
             return
 
         # Live thinking: stream the model's reasoning so the user sees what we're considering
-        yield {"phase": "thinking", "message": "Thinking…", "detail": "", "detail_kind": "text"}
+        yield {"phase": "thinking", "message": "Thinking…", "detail": "", "detail_kind": "text", "step_kind": "reasoning"}
         for thinking_chunk in _stream_llm_thinking(message, candidates, organization_id, schema_summary_stream):
             if thinking_chunk:
                 yield {"phase": "thinking_chunk", "chunk": thinking_chunk}

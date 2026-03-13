@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
+  Database,
   Megaphone,
   Target,
   BarChart3,
@@ -12,6 +13,7 @@ import {
 
 const MAIN_NAV = [
   { id: 'dashboard', path: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+  { id: 'explore', path: '/explore', label: 'Explore', Icon: Database },
   { id: 'campaigns', path: '/campaigns', label: 'Campaigns', Icon: Megaphone },
 ]
 
@@ -21,14 +23,19 @@ const SOURCES_NAV = [
   { id: 'funnel', path: '/funnel', label: 'Funnel', Icon: Filter },
 ]
 
-const SYSTEM_NAV = [
+const INSIGHTS_NAV = [
   { id: 'actions', path: '/actions', label: 'Actions', Icon: Zap },
   { id: 'insights', path: '/insights', label: 'Insights', Icon: Lightbulb },
 ]
 
-function NavSection({ items, path, navigate, sidebarOpen }) {
+function NavSection({ items, path, navigate, sidebarOpen, sectionLabel }) {
   return (
-    <>
+    <div className="space-y-0.5">
+      {sectionLabel && sidebarOpen && (
+        <p className="px-3 py-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+          {sectionLabel}
+        </p>
+      )}
       {items.map((item) => {
         const active = path.startsWith(item.path)
         const Icon = item.Icon
@@ -41,7 +48,7 @@ function NavSection({ items, path, navigate, sidebarOpen }) {
             title={item.label}
             className={`w-full flex items-center gap-3 rounded-lg pl-3 pr-3 py-2.5 text-sm font-medium transition-all border-l-2 ${
               active
-                ? 'border-white bg-white/10 text-white'
+                ? 'border-orange-400 bg-white/10 text-white'
                 : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200'
             } ${!sidebarOpen ? 'justify-center px-2' : ''}`}
           >
@@ -51,11 +58,11 @@ function NavSection({ items, path, navigate, sidebarOpen }) {
               strokeWidth={2}
               aria-hidden
             />
-            {sidebarOpen && <span>{item.label}</span>}
+            {sidebarOpen && <span className="truncate">{item.label}</span>}
           </button>
         )
       })}
-    </>
+    </div>
   )
 }
 
@@ -95,33 +102,10 @@ export default function Layout({ children }) {
               </svg>
             </button>
           </div>
-          <nav className="flex-1 min-h-0 py-2 space-y-0.5 overflow-y-auto scrollbar-sidebar" aria-label="Main">
-            <NavSection items={MAIN_NAV} path={path} navigate={navigate} sidebarOpen={sidebarOpen} />
-            {sidebarOpen ? (
-              <>
-                <div className="pt-3 pb-1">
-                  <p className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">Sources</p>
-                  <div className="space-y-0.5 mt-1">
-                    <NavSection items={SOURCES_NAV} path={path} navigate={navigate} sidebarOpen={sidebarOpen} />
-                  </div>
-                </div>
-                <div className="pt-2 pb-1">
-                  <p className="px-3 py-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">System</p>
-                  <div className="space-y-0.5 mt-1">
-                    <NavSection items={SYSTEM_NAV} path={path} navigate={navigate} sidebarOpen={sidebarOpen} />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="pt-1 space-y-0.5">
-                  <NavSection items={SOURCES_NAV} path={path} navigate={navigate} sidebarOpen={false} />
-                </div>
-                <div className="pt-1 space-y-0.5">
-                  <NavSection items={SYSTEM_NAV} path={path} navigate={navigate} sidebarOpen={false} />
-                </div>
-              </>
-            )}
+          <nav className="flex-1 min-h-0 py-3 space-y-4 overflow-y-auto scrollbar-sidebar" aria-label="Main">
+            <NavSection items={MAIN_NAV} path={path} navigate={navigate} sidebarOpen={sidebarOpen} sectionLabel="Overview" />
+            <NavSection items={SOURCES_NAV} path={path} navigate={navigate} sidebarOpen={sidebarOpen} sectionLabel="Sources" />
+            <NavSection items={INSIGHTS_NAV} path={path} navigate={navigate} sidebarOpen={sidebarOpen} sectionLabel="Insights" />
           </nav>
           {sidebarOpen && (
             <div className="p-3 text-xs text-slate-500 flex-shrink-0">

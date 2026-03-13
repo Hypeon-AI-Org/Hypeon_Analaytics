@@ -104,7 +104,10 @@ export async function fetchGoogleAdsAnalysis({ client_id, days, start_date, end_
   if (start_date) sp.set('start_date', start_date)
   if (end_date) sp.set('end_date', end_date)
   const res = await fetch(`${apiBase()}/api/v1/analysis/google-ads?${sp}`, { headers: await getAuthHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -115,7 +118,10 @@ export async function fetchGoogleAnalyticsAnalysis({ client_id, days, start_date
   if (start_date) sp.set('start_date', start_date)
   if (end_date) sp.set('end_date', end_date)
   const res = await fetch(`${apiBase()}/api/v1/analysis/google-analytics?${sp}`, { headers: await getAuthHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -180,7 +186,10 @@ export async function copilotChatHistory(session_id) {
   const res = await fetch(`${apiBase()}/api/v1/copilot/chat/history?session_id=${encodeURIComponent(session_id)}`, {
     headers: await getAuthHeaders(),
   })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -191,7 +200,10 @@ export async function fetchCopilotSessions(organizationId) {
     { headers: await getAuthHeaders(organizationId) },
     25000
   )
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -202,7 +214,10 @@ export async function deleteCopilotSessions(sessionIds) {
     headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({ session_ids: sessionIds || [] }),
   })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -226,6 +241,58 @@ export async function refreshCopilotSchema() {
   return res.json()
 }
 
+// ----- Dynamic Dashboard (schema-agnostic explore) -----
+export async function fetchDynamicDashboardDatasets() {
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dynamic-dashboard/datasets`, { headers: await getAuthHeaders() })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || apiErrorMessage(res, err))
+  }
+  return res.json()
+}
+
+export async function fetchDynamicDashboardTables() {
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dynamic-dashboard/tables`, { headers: await getAuthHeaders() }, 45000)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || apiErrorMessage(res, err))
+  }
+  return res.json()
+}
+
+export async function fetchDynamicDashboardPreview({ project, dataset, table, limit = 100 }) {
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dynamic-dashboard/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
+    body: JSON.stringify({ project, dataset, table, limit }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || apiErrorMessage(res, data))
+  return data
+}
+
+export async function fetchDynamicDashboardAggregate({ project, dataset, table, group_by_column, metric_column, agg = 'sum', limit = 100 }) {
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dynamic-dashboard/aggregate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
+    body: JSON.stringify({ project, dataset, table, group_by_column, metric_column, agg, limit }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || apiErrorMessage(res, data))
+  return data
+}
+
+export async function fetchDynamicDashboardTimeSeries({ project, dataset, table, date_column, metric_column, agg = 'sum', date_trunc = 'day', limit = 366 }) {
+  const res = await fetchWithTimeout(`${apiBase()}/api/v1/dynamic-dashboard/time-series`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
+    body: JSON.stringify({ project, dataset, table, date_column, metric_column, agg, date_trunc, limit }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || apiErrorMessage(res, data))
+  return data
+}
+
 // ----- Existing -----
 export async function fetchInsights(params = {}) {
   const sp = new URLSearchParams()
@@ -234,7 +301,10 @@ export async function fetchInsights(params = {}) {
   if (params.limit) sp.set('limit', params.limit)
   const url = `${apiBase()}/insights?${sp}`
   const res = await fetch(url, { headers: await getAuthHeaders() })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -244,7 +314,10 @@ export async function applyRecommendation(insightId, status, userId = null) {
     headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
     body: JSON.stringify({ insight_id: insightId, status, user_id: userId }),
   })
-  if (!res.ok) throw new Error(res.statusText)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(res, err))
+  }
   return res.json()
 }
 
@@ -270,7 +343,10 @@ export function copilotStream(insightId, onEvent) {
       body: JSON.stringify({ insight_id: insightId }),
       signal: controller.signal,
     })
-    if (!res.ok) throw new Error(res.statusText)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(apiErrorMessage(res, err))
+    }
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buf = ''

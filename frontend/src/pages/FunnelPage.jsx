@@ -25,8 +25,8 @@ export default function FunnelPage() {
 
   if (loading && !data) {
     return (
-      <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
-        <div className="animate-pulse rounded-xl bg-slate-100 h-10 w-80" />
+      <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/70">
+        <div className="animate-pulse rounded-xl bg-slate-200 h-10 w-80" />
         <div className="animate-pulse rounded-xl bg-slate-100 h-64" />
       </div>
     )
@@ -53,9 +53,9 @@ export default function FunnelPage() {
   ]
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/70">
       <PageReportHeader days={30} onExport={() => {}} />
-      <p className="text-sm text-slate-600">Funnel from cache (last 30d). Drop % between stages.</p>
+      <p className="text-sm text-slate-600 max-w-2xl">Conversion funnel for the last 30 days. Drop % shows falloff between stages.</p>
       <div className="glass-card p-6 max-w-2xl">
         <div className="space-y-4">
           {stages.map((stage, i) => (

@@ -48,7 +48,7 @@ export default function InsightsList() {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/70">
       <PageReportHeader days={30} onExport={() => {}} />
       <div className="flex flex-wrap gap-4 items-center">
         <label className="flex items-center gap-2">

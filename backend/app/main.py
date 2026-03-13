@@ -191,6 +191,13 @@ try:
 except ImportError:
     pass
 
+# Dynamic Dashboard API (schema-agnostic: datasets, tables, preview, aggregate, time-series)
+try:
+    from .api.dynamic_dashboard import router as dynamic_dashboard_router
+    app.include_router(dynamic_dashboard_router, prefix="/api/v1")
+except ImportError:
+    pass
+
 
 # ----- Auth and tenant context (must be before routes that use them) -----
 # get_organization_id and get_role_from_token imported from .auth (Firebase + Firestore when Bearer present)
@@ -474,8 +481,12 @@ def insight_review(
 ):
     """Move insight to reviewed or rejected."""
     org = get_organization_id(request)
-    _update_insight_status(insight_id, org, body.status, None)
-    return {"ok": True, "insight_id": insight_id, "status": body.status}
+    try:
+        _update_insight_status(insight_id, org, body.status, None)
+        return {"ok": True, "insight_id": insight_id, "status": body.status}
+    except Exception as e:
+        logger.exception("insight_review failed | insight_id=%s org=%s error=%s", insight_id, org, str(e)[:300])
+        raise
 
 
 @app.post("/insights/{insight_id}/apply")
@@ -487,14 +498,20 @@ def insight_apply(
 ):
     """Mark insight as applied (status only; no decision store)."""
     org = get_organization_id(request)
-    from .clients.bigquery import get_insight_by_id
-    insight = get_insight_by_id(insight_id, org)
-    if not insight:
-        api_error("NOT_FOUND", "Insight not found", 404)
-    _update_insight_status(insight_id, org, "applied", body.applied_by)
-    from .audit_logger import log_decision_applied
-    log_decision_applied(org, insight_id, body.applied_by)
-    return {"ok": True, "insight_id": insight_id, "status": "applied"}
+    try:
+        from .clients.bigquery import get_insight_by_id
+        insight = get_insight_by_id(insight_id, org)
+        if not insight:
+            api_error("NOT_FOUND", "Insight not found", 404)
+        _update_insight_status(insight_id, org, "applied", body.applied_by)
+        from .audit_logger import log_decision_applied
+        log_decision_applied(org, insight_id, body.applied_by)
+        return {"ok": True, "insight_id": insight_id, "status": "applied"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("insight_apply failed | insight_id=%s org=%s error=%s", insight_id, org, str(e)[:300])
+        raise
 
 
 def _copilot_stream_gen(insight_id: str, org: str):
@@ -889,5 +906,12 @@ def recommendations_apply_legacy(
     _role: str = Depends(require_role("admin", "analyst")),
 ):
     org = get_organization_id(request)
-    _update_insight_status(body.insight_id, org, body.status, body.user_id)
-    return {"ok": True, "insight_id": body.insight_id, "status": body.status}
+    try:
+        _update_insight_status(body.insight_id, org, body.status, body.user_id)
+        return {"ok": True, "insight_id": body.insight_id, "status": body.status}
+    except Exception as e:
+        logger.exception(
+            "recommendations_apply_legacy failed | insight_id=%s org=%s error=%s",
+            body.insight_id, org, str(e)[:300],
+        )
+        raise

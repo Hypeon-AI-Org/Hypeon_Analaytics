@@ -56,7 +56,7 @@ export default function GoogleAnalyticsPage() {
 
   if (loading && !data) {
     return (
-      <div className="flex-1 overflow-auto px-6 py-6 space-y-6">
+      <div className="flex-1 overflow-auto px-6 py-6 space-y-6 bg-slate-50/70">
         <Skeleton className="h-10 w-80" />
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-24" />)}
@@ -69,7 +69,7 @@ export default function GoogleAnalyticsPage() {
 
   if (error) {
     return (
-      <div className="flex-1 overflow-auto px-6 py-6 space-y-4">
+      <div className="flex-1 overflow-auto px-6 py-6 space-y-4 bg-slate-50/70">
         <DateRangePicker onChange={onDateChange} initialDays={params.days} />
         <ErrorBanner message={error} onRetry={load} />
       </div>
@@ -93,7 +93,7 @@ export default function GoogleAnalyticsPage() {
   const funnelMax = funnel.length > 0 ? Math.max(...funnel.map((f) => Number(f.value) || 0), 1) : 1
 
   return (
-    <div className="flex-1 overflow-auto px-6 py-6 space-y-8">
+    <div className="flex-1 overflow-auto px-6 py-6 space-y-8 bg-slate-50/70">
       <PageReportHeader days={params.days || 30} onExport={() => {}} />
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-slate-600">Date range</span>
